@@ -26,7 +26,9 @@ jobs:
         run: npm install -g eas-cli
 
       - name: Write google-services.json
-        run: echo "${{ secrets.GOOGLE_SERVICES_JSON }}" | base64 --decode > google-services.json
+        run: |
+          echo "${{ secrets.GOOGLE_SERVICES_JSON }}" | base64 --decode > google-services.json
+          cat google-services.json
 
       - name: Build Android APK
         run: eas build --platform android --profile preview --non-interactive
@@ -51,4 +53,3 @@ jobs:
           name: EimemesChat-APK
           path: EimemesChat.apk
           if-no-files-found: warn
-          
