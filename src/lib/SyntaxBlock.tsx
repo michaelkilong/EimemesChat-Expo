@@ -1,13 +1,7 @@
 // SyntaxBlock.tsx — v1.0 (Expo)
-// Syntax-highlighted code block matching the web app's code-block exactly:
-//   - Language label top-left
-//   - "Copy" button top-right (becomes "Copied!" for 2s)
-//   - highlight.js atomOneDark theme
-//   - Rounded container matching web glass style
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
-import SyntaxHighlighter from 'react-native-syntax-highlighter';
-import { atomOneDark, atomOneLight } from 'react-syntax-highlighter/styles/hljs';
+import SyntaxHighlighter, { atomOneDark, atomOneLight } from 'react-native-syntax-highlighter';
 import * as Clipboard from 'expo-clipboard';
 import { haptic } from './haptic';
 import { useApp } from '../context/AppContext';
@@ -33,7 +27,6 @@ export default function SyntaxBlock({ code, lang }: Props) {
 
   return (
     <View style={[styles.container, { backgroundColor: isDark ? '#282c34' : '#f6f8fa' }]}>
-      {/* Header — language label + copy button, exactly like web */}
       <View style={[styles.header, { borderBottomColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)' }]}>
         <Text style={[styles.langLabel, { color: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.4)' }]}>
           {displayLang}
@@ -52,7 +45,6 @@ export default function SyntaxBlock({ code, lang }: Props) {
         </TouchableOpacity>
       </View>
 
-      {/* Code — horizontally scrollable */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
         <SyntaxHighlighter
           language={displayLang}
