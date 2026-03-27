@@ -20,13 +20,19 @@ jobs:
           node-version: 18
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
+
+      - name: Fix Expo dependencies
+        run: npx expo install --fix
 
       - name: Install EAS CLI
         run: npm install -g eas-cli
 
       - name: Write google-services.json
         run: echo "${{ secrets.GOOGLE_SERVICES_JSON }}" | base64 --decode > google-services.json
+
+      - name: Clear Expo cache
+        run: npx expo prebuild --clean
 
       - name: Build Android APK
         run: eas build --platform android --profile preview --non-interactive
