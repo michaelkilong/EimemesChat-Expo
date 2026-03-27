@@ -1,1 +1,54 @@
+name: Build Android APK
 
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    name: Build APK with EAS
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install EAS CLI
+        run: npm install -g eas-cli
+
+      - name: Write google-services.json
+        run: echo "${{ secrets.GOOGLE_SERVICES_JSON }}" | base64 --decode > google-services.json
+
+      - name: Build Android APK
+        run: eas build --platform android --profile preview --non-interactive
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Download APK from EAS
+        run: |
+          APK_URL=$(eas build:list --platform android --limit 1 --json --non-interactive | \
+            node -e "const d=require('fs').readFileSync('/dev/stdin','utf8'); \
+            console.log(JSON.parse(d)[0].artifacts?.buildUrl || '')")
+          echo "APK_URL=$APK_URL" >> $GITHUB_ENV
+          if [ -n "$APK_URL" ]; then
+            curl -L "$APK_URL" -o EimemesChat.apk
+          fi
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Upload APK as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: EimemesChat-APK
+          path: EimemesChat.apk
+          if-no-files-found: warn
