@@ -18,7 +18,7 @@ import { useApp } from '../../context/AppContext';
 // Configure once at module level
 GoogleSignin.configure({
   // Replace with your actual Web Client ID from Firebase Console → Project Settings → Web app
-  webClientId: '230417181657-REPLACE_WITH_YOUR_WEB_CLIENT_ID.apps.googleusercontent.com',
+  webClientId: '230417181657-7v30t8ogq03broga9p676p3f9lltng1a.apps.googleusercontent.com',',
 });
 
 function friendlyAuthError(code: string): string {
