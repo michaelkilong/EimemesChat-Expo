@@ -31,8 +31,7 @@
           "iosUrlScheme": "com.googleusercontent.apps.230417181657-YOUR_IOS_CLIENT_ID"
         }
       ],
-      "expo-font",
-      "expo-haptics"
+      "expo-font"
     ]
   }
 }
