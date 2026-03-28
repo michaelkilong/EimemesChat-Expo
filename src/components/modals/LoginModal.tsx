@@ -1,9 +1,8 @@
-// LoginModal.tsx — v1.1 (Expo)
-// v1.1: Cleaned up Google Sign-In import, removed unused GoogleSigninButton.
-import React, { useState } from 'react';
+// LoginModal.tsx — v1.2 (Expo)
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
-  Modal, StyleSheet, Linking, Switch, Alert,
+  Modal, StyleSheet, Linking, Switch,
 } from 'react-native';
 import {
   signInWithEmailAndPassword,
@@ -14,12 +13,6 @@ import {
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { auth } from '../../firebase';
 import { useApp } from '../../context/AppContext';
-
-// Configure once at module level
-GoogleSignin.configure({
-  // web client id
-  webClientId: '230417181657-7v30t8ogq03broga9p676p3f9lltng1a.apps.googleusercontent.com',
-});
 
 function friendlyAuthError(code: string): string {
   return ({
@@ -44,6 +37,12 @@ export default function LoginModal({ visible }: Props) {
   const [agreed,   setAgreed]   = useState(false);
   const [error,    setError]    = useState('');
   const [loading,  setLoading]  = useState(false);
+
+  useEffect(() => {
+    GoogleSignin.configure({
+      webClientId: '230417181657-7v30t8ogq03broga9p676p3f9lltng1a.apps.googleusercontent.com',
+    });
+  }, []);
 
   const disabled = !agreed || loading;
 
@@ -81,8 +80,8 @@ export default function LoginModal({ visible }: Props) {
   };
 
   const handleSignup = async () => {
-    if (!agreed)          { setError('Please agree to the terms first.'); return; }
-    if (!email)           { setError('Please enter your email address.'); return; }
+    if (!agreed)             { setError('Please agree to the terms first.'); return; }
+    if (!email)              { setError('Please enter your email address.'); return; }
     if (password.length < 6) { setError('Password must be at least 6 characters.'); return; }
     try {
       setLoading(true); setError('');
@@ -99,13 +98,11 @@ export default function LoginModal({ visible }: Props) {
       <View style={[styles.overlay, { backgroundColor: theme.bg }]}>
         <View style={[styles.card, { backgroundColor: theme.glass2, borderColor: theme.border }]}>
 
-          {/* Title */}
           <Text style={[styles.title, { color: theme.accent }]}>EimemesChat AI</Text>
           <Text style={[styles.subtitle, { color: theme.text3 }]}>
             {isSignUp ? 'Create your account to get started' : 'Welcome back, sign in to continue'}
           </Text>
 
-          {/* Email input */}
           <TextInput
             style={[styles.input, { backgroundColor: theme.glass3, borderColor: theme.border, color: theme.text1 }]}
             placeholder="Email"
@@ -118,7 +115,6 @@ export default function LoginModal({ visible }: Props) {
             editable={!loading}
           />
 
-          {/* Password input */}
           <TextInput
             style={[styles.input, { backgroundColor: theme.glass3, borderColor: theme.border, color: theme.text1 }]}
             placeholder="Password"
@@ -130,7 +126,6 @@ export default function LoginModal({ visible }: Props) {
             editable={!loading}
           />
 
-          {/* Primary button */}
           <TouchableOpacity
             onPress={isSignUp ? handleSignup : handleEmail}
             disabled={disabled}
@@ -142,26 +137,22 @@ export default function LoginModal({ visible }: Props) {
             </Text>
           </TouchableOpacity>
 
-          {/* Divider */}
           <View style={styles.divider}>
             <View style={[styles.divLine, { backgroundColor: theme.border }]} />
             <Text style={{ color: theme.text3, fontSize: 14, marginHorizontal: 10 }}>or</Text>
             <View style={[styles.divLine, { backgroundColor: theme.border }]} />
           </View>
 
-          {/* Google button */}
           <TouchableOpacity
             onPress={handleGoogle}
             disabled={disabled}
             activeOpacity={0.8}
             style={[styles.btnGoogle, { backgroundColor: theme.glass2, borderColor: theme.border, opacity: disabled ? 0.45 : 1 }]}
           >
-            {/* Google G icon */}
             <Text style={{ fontSize: 18, lineHeight: 22 }}>G</Text>
             <Text style={{ color: theme.text1, fontSize: 16, fontWeight: '500' }}>Continue with Google</Text>
           </TouchableOpacity>
 
-          {/* Terms checkbox */}
           <View style={styles.termsRow}>
             <Switch
               value={agreed}
@@ -184,7 +175,6 @@ export default function LoginModal({ visible }: Props) {
             </Text>
           </View>
 
-          {/* Toggle sign in / sign up */}
           <TouchableOpacity
             onPress={() => { setIsSignUp(!isSignUp); setError(''); }}
             style={{ marginTop: 14 }}
@@ -194,7 +184,6 @@ export default function LoginModal({ visible }: Props) {
             </Text>
           </TouchableOpacity>
 
-          {/* Error message */}
           {!!error && (
             <Text style={{ color: '#ff6b6b', fontSize: 13.5, marginTop: 10, textAlign: 'center' }}>
               {error}
