@@ -1,10 +1,8 @@
 // App.tsx — v1.2 (Expo)
-// v1.2: Added Android BackHandler navigation (same back-button behaviour as web history.pushState).
-//       SVG icons for topbar buttons. All features matching web app exactly.
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, StatusBar,
-  StyleSheet, Modal, Animated, BackHandler,
+  StyleSheet, Modal, Animated, BackHandler, Alert,
 } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -33,9 +31,18 @@ import { IconMenu, IconPlus } from './src/lib/Icons';
 
 import type { Attachment, View as ViewType } from './src/types';
 
+// ── Global error handler — shows crash details before app closes ──
+const originalHandler = (global as any).ErrorUtils?.getGlobalHandler?.();
+(global as any).ErrorUtils?.setGlobalHandler?.((error: any, isFatal: boolean) => {
+  Alert.alert(
+    'Crash Report',
+    error.message + '\n\n' + (error.stack?.slice(0, 300) ?? ''),
+  );
+  originalHandler?.(error, isFatal);
+});
+
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 
-// ── Circular topbar button — 40×40, Apple HIG, backdrop blur ────
 function CircleBtn({ onPress, children }: { onPress: () => void; children: React.ReactNode }) {
   return (
     <TouchableOpacity
@@ -51,7 +58,6 @@ function CircleBtn({ onPress, children }: { onPress: () => void; children: React
   );
 }
 
-// ── Toast — same fade-in/out as web ─────────────────────────────
 function Toast() {
   const { toastMsg, toastVisible, theme } = useApp();
   const opacity = useRef(new Animated.Value(0)).current;
@@ -74,7 +80,6 @@ function Toast() {
   );
 }
 
-// ── Confirm dialog — same 2-button card as web ──────────────────
 function ConfirmDialog() {
   const { theme, confirmState, handleConfirmYes, handleConfirmNo } = useApp();
   return (
@@ -108,7 +113,6 @@ function ConfirmDialog() {
   );
 }
 
-// ── Main app screen ─────────────────────────────────────────────
 function AppInner() {
   useAuth();
   useTheme();
@@ -123,27 +127,20 @@ function AppInner() {
   const [chipsUsed,         setChipsUsed]         = useState(false);
   const [dailyLimitReached, setDailyLimitReached] = useState(false);
 
-  // ── Android back button navigation ──────────────────────────────
-  // Mirrors web history.pushState — back button traverses the view stack
-  // instead of exiting the app.
   useEffect(() => {
     const onBack = (): boolean => {
-      // 1. Close sidebar first if open
       if (sidebarOpen) { setSidebarOpen(false); return true; }
-      // 2. Navigate view stack backwards
       if (view === 'licenses')        { setView('about');     return true; }
       if (view === 'about')           { setView('settings');  return true; }
       if (view === 'personalization') { setView('settings');  return true; }
       if (view === 'profile')         { setView('settings');  return true; }
       if (view === 'settings')        { setView('chat');      return true; }
-      // 3. On chat view — let Android exit the app
       return false;
     };
     const sub = BackHandler.addEventListener('hardwareBackPress', onBack);
     return () => sub.remove();
   }, [view, sidebarOpen, setSidebarOpen, setView]);
 
-  // Restore chips
   useEffect(() => {
     AsyncStorage.getItem('ec_chips_used')
       .then(v => { if (v === 'true') setChipsUsed(true); })
@@ -172,7 +169,6 @@ function AppInner() {
     setConvTitle, isStreamingRef, setMessages,
   );
 
-  // Check daily limit on login
   useEffect(() => {
     if (!currentUser) return;
     getDoc(doc(db, 'users', currentUser.uid))
@@ -229,7 +225,6 @@ function AppInner() {
     <View style={[styles.root, { backgroundColor: theme.bg }]}>
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
 
-      {/* ── SIDEBAR ── */}
       <Sidebar
         conversations={conversations}
         currentConvId={currentConvId}
@@ -239,10 +234,8 @@ function AppInner() {
         onDeleteConv={handleDeleteConv}
       />
 
-      {/* ── CHAT VIEW ── */}
       {view === 'chat' && (
         <>
-          {/* Topbar — gradient fade, circular buttons */}
           <View style={[styles.topbar, { paddingTop: insets.top + 10 }]}>
             <LinearGradient
               colors={[theme.bg, theme.bg + 'cc', 'transparent']}
@@ -252,12 +245,9 @@ function AppInner() {
               <CircleBtn onPress={() => setSidebarOpen(true)}>
                 <IconMenu size={18} color={theme.text1} />
               </CircleBtn>
-
-              {/* Centered title — same as web */}
               <Text numberOfLines={1} style={[styles.topbarTitle, { color: theme.text1 }]}>
                 {topbarTitle}
               </Text>
-
               <CircleBtn onPress={handleNewChat}>
                 <IconPlus size={18} color={theme.text1} />
               </CircleBtn>
@@ -290,7 +280,6 @@ function AppInner() {
         </>
       )}
 
-      {/* ── OTHER VIEWS ── */}
       {view === 'settings' && (
         <SettingsView
           onBack={() => setView('chat')}
@@ -314,7 +303,6 @@ function AppInner() {
         <LicensesView onBack={() => setView('about')} />
       )}
 
-      {/* ── GLOBAL OVERLAYS ── */}
       <LoginModal visible={!currentUser} />
       <Toast />
       <ConfirmDialog />
