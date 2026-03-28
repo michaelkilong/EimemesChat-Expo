@@ -1,5 +1,5 @@
-// LoginModal.tsx — v1.2 (Expo)
-import React, { useState, useEffect } from 'react';
+// LoginModal.tsx — v1.1 (Expo)
+import React, { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
   Modal, StyleSheet, Linking, Switch,
@@ -13,6 +13,11 @@ import {
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { auth } from '../../firebase';
 import { useApp } from '../../context/AppContext';
+
+// Configure once at module level
+GoogleSignin.configure({
+  webClientId: '230417181657-7v30t8ogq03broga9p676p3f9lltng1a.apps.googleusercontent.com',
+});
 
 function friendlyAuthError(code: string): string {
   return ({
@@ -37,12 +42,6 @@ export default function LoginModal({ visible }: Props) {
   const [agreed,   setAgreed]   = useState(false);
   const [error,    setError]    = useState('');
   const [loading,  setLoading]  = useState(false);
-
-  useEffect(() => {
-    GoogleSignin.configure({
-      webClientId: '230417181657-7v30t8ogq03broga9p676p3f9lltng1a.apps.googleusercontent.com',
-    });
-  }, []);
 
   const disabled = !agreed || loading;
 
