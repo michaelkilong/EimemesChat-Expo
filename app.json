@@ -26,12 +26,6 @@
       "googleServicesFile": "./google-services.json"
     },
     "plugins": [
-      [
-        "@react-native-google-signin/google-signin",
-        {
-          "iosUrlScheme": "com.googleusercontent.apps.230417181657-YOUR_IOS_CLIENT_ID"
-        }
-      ],
       "expo-font"
     ],
     "extra": {
