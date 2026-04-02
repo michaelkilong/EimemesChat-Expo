@@ -1,4 +1,4 @@
-// LoginModal.tsx — v1.1 (Expo)
+// LoginModal.tsx — v1.1-test (no Google Sign-In)
 import React, { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
@@ -7,17 +7,9 @@ import {
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
-  GoogleAuthProvider,
-  signInWithCredential,
 } from 'firebase/auth';
-import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { auth } from '../../firebase';
 import { useApp } from '../../context/AppContext';
-
-// Configure once at module level
-GoogleSignin.configure({
-  webClientId: '230417181657-7v30t8ogq03broga9p676p3f9lltng1a.apps.googleusercontent.com',
-});
 
 function friendlyAuthError(code: string): string {
   return ({
@@ -44,26 +36,6 @@ export default function LoginModal({ visible }: Props) {
   const [loading,  setLoading]  = useState(false);
 
   const disabled = !agreed || loading;
-
-  const handleGoogle = async () => {
-    if (!agreed) { setError('Please agree to the terms first.'); return; }
-    try {
-      setLoading(true);
-      setError('');
-      await GoogleSignin.hasPlayServices();
-      const userInfo = await GoogleSignin.signIn();
-      const idToken = userInfo.data?.idToken || (userInfo as any).idToken;
-      if (!idToken) throw new Error('No ID token returned');
-      const credential = GoogleAuthProvider.credential(idToken);
-      await signInWithCredential(auth, credential);
-    } catch (e: any) {
-      if (e.code !== 'SIGN_IN_CANCELLED') {
-        setError(friendlyAuthError(e.code || ''));
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleEmail = async () => {
     if (!agreed) { setError('Please agree to the terms first.'); return; }
@@ -136,22 +108,6 @@ export default function LoginModal({ visible }: Props) {
             </Text>
           </TouchableOpacity>
 
-          <View style={styles.divider}>
-            <View style={[styles.divLine, { backgroundColor: theme.border }]} />
-            <Text style={{ color: theme.text3, fontSize: 14, marginHorizontal: 10 }}>or</Text>
-            <View style={[styles.divLine, { backgroundColor: theme.border }]} />
-          </View>
-
-          <TouchableOpacity
-            onPress={handleGoogle}
-            disabled={disabled}
-            activeOpacity={0.8}
-            style={[styles.btnGoogle, { backgroundColor: theme.glass2, borderColor: theme.border, opacity: disabled ? 0.45 : 1 }]}
-          >
-            <Text style={{ fontSize: 18, lineHeight: 22 }}>G</Text>
-            <Text style={{ color: theme.text1, fontSize: 16, fontWeight: '500' }}>Continue with Google</Text>
-          </TouchableOpacity>
-
           <View style={styles.termsRow}>
             <Switch
               value={agreed}
@@ -202,8 +158,5 @@ const styles = StyleSheet.create({
   input:          { borderRadius: 40, borderWidth: 1, padding: 14, paddingHorizontal: 18, fontSize: 16, marginVertical: 6 },
   btnPrimary:     { backgroundColor: '#007aff', borderRadius: 40, padding: 14, marginVertical: 8, alignItems: 'center' },
   btnPrimaryText: { color: 'white', fontSize: 16, fontWeight: '600' },
-  divider:        { flexDirection: 'row', alignItems: 'center', marginVertical: 12 },
-  divLine:        { flex: 1, height: 1 },
-  btnGoogle:      { borderRadius: 40, borderWidth: 1, padding: 14, marginVertical: 4, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
   termsRow:       { flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 16 },
 });
