@@ -1,365 +1,151 @@
-// App.tsx — v1.2 (Expo)
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+// App.tsx
+// EimemesChat AI — WebView Wrapper
+// v1.0 — WebView + net detection + back handler + Google Auth fix
+
+import React, { useRef, useState, useEffect } from 'react';
 import {
-  View, Text, TouchableOpacity, StatusBar,
-  StyleSheet, Modal, Animated, BackHandler, Alert,
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  StatusBar,
+  ActivityIndicator,
+  SafeAreaView,
+  BackHandler,
+  Linking,
 } from 'react-native';
-import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
-import { doc, getDoc } from 'firebase/firestore';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { WebView } from 'react-native-webview';
+import NetInfo from '@react-native-community/netinfo';
 
-import { AppProvider, useApp } from './src/context/AppContext';
-import { useAuth }              from './src/hooks/useAuth';
-import { useTheme }             from './src/hooks/useTheme';
-import { useConversations }     from './src/hooks/useConversations';
-import { useMessages }          from './src/hooks/useMessages';
-import { useChat }              from './src/hooks/useChat';
-import { db }                   from './src/firebase';
-import { DAILY_LIMIT }          from './src/constants';
+const TARGET_URL = 'https://eimemes-chat-ai.vercel.app';
 
-import Sidebar             from './src/components/Sidebar';
-import MessageList         from './src/components/MessageList';
-import InputArea           from './src/components/InputArea';
-import SettingsView        from './src/components/SettingsView';
-import ProfileView         from './src/components/ProfileView';
-import PersonalizationView from './src/components/PersonalizationView';
-import AboutView           from './src/components/AboutView';
-import LicensesView        from './src/components/LicensesView';
-import LoginModal          from './src/components/modals/LoginModal';
-import { IconMenu, IconPlus } from './src/lib/Icons';
+// Spoof UA so Google OAuth doesn't block WebView
+const CHROME_UA =
+  'Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 ' +
+  '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
 
-import type { Attachment, View as ViewType } from './src/types';
+export default function App() {
+  const webviewRef = useRef<WebView>(null);
+  const [isConnected, setIsConnected] = useState<boolean | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [canGoBack, setCanGoBack] = useState(false);
 
-// ── Global error handler — shows crash details before app closes ──
-const originalHandler = (global as any).ErrorUtils?.getGlobalHandler?.();
-(global as any).ErrorUtils?.setGlobalHandler?.((error: any, isFatal: boolean) => {
-  Alert.alert(
-    'Crash Report',
-    error.message + '\n\n' + (error.stack?.slice(0, 300) ?? ''),
-  );
-  originalHandler?.(error, isFatal);
-});
-
-function todayStr() { return new Date().toISOString().slice(0, 10); }
-
-function CircleBtn({ onPress, children }: { onPress: () => void; children: React.ReactNode }) {
-  return (
-    <TouchableOpacity
-      onPress={onPress}
-      activeOpacity={0.7}
-      style={[styles.circleBtn, {
-        backgroundColor: 'rgba(255,255,255,0.22)',
-        borderColor: 'rgba(255,255,255,0.35)',
-      }]}
-    >
-      {children}
-    </TouchableOpacity>
-  );
-}
-
-function Toast() {
-  const { toastMsg, toastVisible, theme } = useApp();
-  const opacity = useRef(new Animated.Value(0)).current;
-
+  // ── Network detection ──────────────────────────────────────────────────
   useEffect(() => {
-    Animated.timing(opacity, {
-      toValue: toastVisible ? 1 : 0,
-      duration: 220,
-      useNativeDriver: true,
-    }).start();
-  }, [toastVisible]);
+    NetInfo.fetch().then(state => {
+      setIsConnected(state.isConnected ?? false);
+    });
 
-  return (
-    <Animated.View
-      pointerEvents="none"
-      style={[styles.toast, { backgroundColor: theme.bgA, borderColor: theme.border, opacity }]}
-    >
-      <Text style={{ color: theme.text1, fontSize: 14, textAlign: 'center' }}>{toastMsg}</Text>
-    </Animated.View>
-  );
-}
+    const unsub = NetInfo.addEventListener(state => {
+      const connected = state.isConnected ?? false;
+      setIsConnected(prev => {
+        if (!prev && connected) {
+          setTimeout(() => webviewRef.current?.reload(), 500);
+        }
+        return connected;
+      });
+    });
 
-function ConfirmDialog() {
-  const { theme, confirmState, handleConfirmYes, handleConfirmNo } = useApp();
-  return (
-    <Modal visible={confirmState.open} transparent animationType="fade" statusBarTranslucent>
-      <View style={styles.confirmOverlay}>
-        <TouchableOpacity style={StyleSheet.absoluteFillObject} onPress={handleConfirmNo} activeOpacity={1} />
-        <View style={[styles.confirmCard, { backgroundColor: theme.bgA, borderColor: theme.border }]}>
-          <View style={{ padding: 24, alignItems: 'center' }}>
-            <Text style={{ fontSize: 16, fontWeight: '700', color: theme.text1, marginBottom: 8 }}>
-              {confirmState.title}
-            </Text>
-            <Text style={{ fontSize: 14, color: theme.text2, lineHeight: 21, textAlign: 'center' }}>
-              {confirmState.msg}
-            </Text>
-          </View>
-          <View style={{ height: 1, backgroundColor: theme.borderB }} />
-          <View style={{ flexDirection: 'row' }}>
-            <TouchableOpacity onPress={handleConfirmNo}  style={styles.confirmBtn}>
-              <Text style={{ color: theme.text2, fontSize: 15, fontWeight: '500' }}>Cancel</Text>
-            </TouchableOpacity>
-            <View style={{ width: 1, backgroundColor: theme.borderB }} />
-            <TouchableOpacity onPress={handleConfirmYes} style={styles.confirmBtn}>
-              <Text style={{ color: '#ff6b6b', fontSize: 15, fontWeight: '700' }}>
-                {confirmState.yesLabel}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-function AppInner() {
-  useAuth();
-  useTheme();
-
-  const {
-    currentUser, authReady, view, setView,
-    theme, sidebarOpen, setSidebarOpen,
-  } = useApp();
-  const insets = useSafeAreaInsets();
-
-  const [currentConvId,     setCurrentConvId]     = useState<string | null>(null);
-  const [chipsUsed,         setChipsUsed]         = useState(false);
-  const [dailyLimitReached, setDailyLimitReached] = useState(false);
-
-  useEffect(() => {
-    const onBack = (): boolean => {
-      if (sidebarOpen) { setSidebarOpen(false); return true; }
-      if (view === 'licenses')        { setView('about');     return true; }
-      if (view === 'about')           { setView('settings');  return true; }
-      if (view === 'personalization') { setView('settings');  return true; }
-      if (view === 'profile')         { setView('settings');  return true; }
-      if (view === 'settings')        { setView('chat');      return true; }
-      return false;
-    };
-    const sub = BackHandler.addEventListener('hardwareBackPress', onBack);
-    return () => sub.remove();
-  }, [view, sidebarOpen, setSidebarOpen, setView]);
-
-  useEffect(() => {
-    AsyncStorage.getItem('ec_chips_used')
-      .then(v => { if (v === 'true') setChipsUsed(true); })
-      .catch(() => {});
+    return () => unsub();
   }, []);
 
-  const {
-    conversations, createNewChat, clearAllChats,
-    deleteConv, getConvRef, getUserConvsRef,
-  } = useConversations();
-
-  const { messages, setMessages, convTitle, setConvTitle, isStreamingRef } = useMessages(currentConvId);
-
-  const handleNewChat = useCallback(async () => {
-    const id = await createNewChat();
-    if (id) { setCurrentConvId(id); setView('chat'); }
-  }, [createNewChat, setView]);
-
-  const {
-    isSending, isStreaming, isTyping, isSearching,
-    streamText, streamDone, streamModel, streamDisclaimer, streamSources,
-    sendMessage, stopStreaming,
-  } = useChat(
-    currentConvId, setCurrentConvId,
-    conversations, createNewChat,
-    setConvTitle, isStreamingRef, setMessages,
-  );
-
+  // ── Android hardware back button ───────────────────────────────────────
   useEffect(() => {
-    if (!currentUser) return;
-    getDoc(doc(db, 'users', currentUser.uid))
-      .then(snap => {
-        if (!snap.exists()) return;
-        const data = snap.data() as { dailyCount?: number; lastDate?: string };
-        if (data.lastDate === todayStr() && (data.dailyCount || 0) >= DAILY_LIMIT) {
-          setDailyLimitReached(true);
-        }
-      })
-      .catch(() => {});
-  }, [currentUser]);
+    const backAction = () => {
+      if (canGoBack) {
+        webviewRef.current?.goBack();
+        return true;
+      }
+      return false;
+    };
+    const handler = BackHandler.addEventListener('hardwareBackPress', backAction);
+    return () => handler.remove();
+  }, [canGoBack]);
 
-  const handleSend = useCallback((text: string, attachment?: Attachment, useWebSearch?: boolean) => {
-    sendMessage(text, () => {
-      setChipsUsed(true);
-      AsyncStorage.setItem('ec_chips_used', 'true').catch(() => {});
-    }, attachment, useWebSearch);
-  }, [sendMessage]);
-
-  const handleRegen = useCallback(async (originalMsg: string) => {
-    if (!currentConvId || isSending || isStreaming) return;
-    const { getDoc: gd, updateDoc } = await import('firebase/firestore');
-    const convRef = getConvRef(currentConvId);
-    if (!convRef) return;
-    const snap = await gd(convRef);
-    if (!snap.exists()) return;
-    const msgs    = snap.data().messages || [];
-    const trimmed = [...msgs];
-    while (trimmed.length && trimmed[trimmed.length - 1].role === 'assistant') trimmed.pop();
-    await updateDoc(convRef, { messages: trimmed, updatedAt: new Date() });
-    handleSend(originalMsg);
-  }, [currentConvId, isSending, isStreaming, getConvRef, handleSend]);
-
-  const handleDeleteConv = useCallback(async (id: string) => {
-    await deleteConv(id);
-    if (currentConvId === id) setCurrentConvId(null);
-  }, [deleteConv, currentConvId]);
-
-  const handleClearChats = useCallback(async () => {
-    await clearAllChats();
-    setCurrentConvId(null);
-  }, [clearAllChats]);
-
-  const topbarTitle = currentConvId
-    ? (convTitle || conversations.find(c => c.id === currentConvId)?.title || 'EimemesChat')
-    : '';
-
-  if (!authReady) {
-    return <View style={[StyleSheet.absoluteFillObject, { backgroundColor: '#0d0d0d' }]} />;
+  // ── Initial net check splash ───────────────────────────────────────────
+  if (isConnected === null) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.brandText}>EimemesChat AI</Text>
+        <ActivityIndicator size="large" color="#a78bfa" style={{ marginTop: 16 }} />
+      </View>
+    );
   }
 
   return (
-    <View style={[styles.root, { backgroundColor: theme.bg }]}>
-      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
+    <SafeAreaView style={styles.root}>
+      <StatusBar backgroundColor="#13111a" barStyle="light-content" />
 
-      <Sidebar
-        conversations={conversations}
-        currentConvId={currentConvId}
-        onNewChat={handleNewChat}
-        onSelectConv={id => { setCurrentConvId(id); setView('chat'); }}
-        onOpenSettings={() => { setView('settings'); setSidebarOpen(false); }}
-        onDeleteConv={handleDeleteConv}
-      />
+      {/* ── Offline screen ─────────────────────────────────────────────── */}
+      {!isConnected && (
+        <View style={styles.offlineScreen}>
+          <Text style={styles.offlineIcon}>📡</Text>
+          <Text style={styles.offlineTitle}>No Connection</Text>
+          <Text style={styles.offlineSub}>
+            EimemesChat needs internet to work.{'\n'}
+            Check your Wi-Fi or mobile data.
+          </Text>
+          <TouchableOpacity
+            style={styles.retryBtn}
+            onPress={() =>
+              NetInfo.fetch().then(s => setIsConnected(s.isConnected ?? false))
+            }
+            activeOpacity={0.8}
+          >
+            <Text style={styles.retryText}>Try Again</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
-      {view === 'chat' && (
-        <>
-          <View style={[styles.topbar, { paddingTop: insets.top + 10 }]}>
-            <LinearGradient
-              colors={[theme.bg, theme.bg + 'cc', 'transparent']}
-              style={[StyleSheet.absoluteFillObject, { zIndex: 0 }]}
-            />
-            <View style={[styles.topbarRow, { zIndex: 1 }]}>
-              <CircleBtn onPress={() => setSidebarOpen(true)}>
-                <IconMenu size={18} color={theme.text1} />
-              </CircleBtn>
-              <Text numberOfLines={1} style={[styles.topbarTitle, { color: theme.text1 }]}>
-                {topbarTitle}
-              </Text>
-              <CircleBtn onPress={handleNewChat}>
-                <IconPlus size={18} color={theme.text1} />
-              </CircleBtn>
-            </View>
+      {/* ── WebView (hidden offline, never unmounted) ───────────────────── */}
+      <View style={{ flex: 1, display: isConnected ? 'flex' : 'none' }}>
+        {loading && (
+          <View style={styles.loadingOverlay}>
+            <Text style={styles.brandText}>EimemesChat AI</Text>
+            <ActivityIndicator size="large" color="#a78bfa" style={{ marginTop: 16 }} />
           </View>
+        )}
 
-          <MessageList
-            messages={messages}
-            isTyping={isTyping}
-            isSearching={isSearching}
-            isStreaming={isStreaming}
-            streamText={streamText}
-            streamDone={streamDone}
-            streamModel={streamModel}
-            streamDisclaimer={streamDisclaimer}
-            streamSources={streamSources}
-            convId={currentConvId}
-            chipsUsed={chipsUsed}
-            onChipClick={handleSend}
-            onRegen={handleRegen}
-          />
-
-          <InputArea
-            onSend={handleSend}
-            onStop={stopStreaming}
-            isSending={isSending}
-            isStreaming={isStreaming}
-            dailyLimitReached={dailyLimitReached}
-          />
-        </>
-      )}
-
-      {view === 'settings' && (
-        <SettingsView
-          onBack={() => setView('chat')}
-          onOpenProfile={() => setView('profile')}
-          onOpenPersonalization={() => setView('personalization')}
-          onOpenAbout={() => setView('about')}
-          onClearChats={handleClearChats}
-          conversations={conversations}
+        <WebView
+          ref={webviewRef}
+          source={{ uri: TARGET_URL }}
+          userAgent={CHROME_UA}
+          onShouldStartLoadWithRequest={request => {
+            const { url } = request;
+            if (
+              url.includes('accounts.google.com') ||
+              url.includes('google.com/o/oauth2')
+            ) {
+              Linking.openURL(url);
+              return false;
+            }
+            return true;
+          }}
+          onNavigationStateChange={nav => setCanGoBack(nav.canGoBack)}
+          onLoadStart={() => setLoading(true)}
+          onLoadEnd={() => setLoading(false)}
+          onError={() => setLoading(false)}
+          javaScriptEnabled
+          domStorageEnabled
+          allowsInlineMediaPlayback
+          mediaPlaybackRequiresUserAction={false}
+          mediaCapturePermissionGrantType="grant"
+          style={{ flex: 1, backgroundColor: '#13111a' }}
         />
-      )}
-      {view === 'profile' && (
-        <ProfileView onBack={() => setView('settings')} getUserConvsRef={getUserConvsRef} />
-      )}
-      {view === 'personalization' && (
-        <PersonalizationView onBack={() => setView('settings')} />
-      )}
-      {view === 'about' && (
-        <AboutView onBack={() => setView('settings')} onOpenLicenses={() => setView('licenses')} />
-      )}
-      {view === 'licenses' && (
-        <LicensesView onBack={() => setView('about')} />
-      )}
-
-      <LoginModal visible={!currentUser} />
-      <Toast />
-      <ConfirmDialog />
-    </View>
-  );
-}
-
-export default function App() {
-  return (
-    <SafeAreaProvider>
-      <AppProvider>
-        <AppInner />
-      </AppProvider>
-    </SafeAreaProvider>
+      </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1 },
-  topbar: {
-    flexShrink: 0,
-    paddingBottom: 10,
-    zIndex: 10,
-  },
-  topbarRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-  },
-  topbarTitle: {
-    fontSize: 16, fontWeight: '600',
-    position: 'absolute', left: 68, right: 68,
-    textAlign: 'center',
-  },
-  circleBtn: {
-    width: 40, height: 40, borderRadius: 20,
-    borderWidth: 1,
-    alignItems: 'center', justifyContent: 'center',
-    zIndex: 1,
-  },
-  toast: {
-    position: 'absolute', bottom: 80,
-    left: '12%', right: '12%',
-    paddingHorizontal: 20, paddingVertical: 10,
-    borderRadius: 20, borderWidth: 1,
-    alignItems: 'center', zIndex: 999,
-    shadowColor: '#000', shadowOpacity: 0.2,
-    shadowRadius: 8, elevation: 8,
-  },
-  confirmOverlay: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.6)',
-    alignItems: 'center', justifyContent: 'center', padding: 40,
-  },
-  confirmCard: {
-    width: '100%', maxWidth: 320,
-    borderRadius: 20, overflow: 'hidden', borderWidth: 1,
-  },
-  confirmBtn: { flex: 1, padding: 15, alignItems: 'center' },
+  root: { flex: 1, backgroundColor: '#13111a' },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#13111a' },
+  brandText: { fontSize: 26, fontWeight: '800', color: '#a78bfa', letterSpacing: 0.5 },
+  offlineScreen: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#13111a', padding: 32 },
+  offlineIcon: { fontSize: 64, marginBottom: 20 },
+  offlineTitle: { fontSize: 22, fontWeight: '700', color: '#f1f0f5', marginBottom: 10 },
+  offlineSub: { fontSize: 14, color: '#888', textAlign: 'center', lineHeight: 22, marginBottom: 36 },
+  retryBtn: { backgroundColor: '#7c3aed', paddingHorizontal: 36, paddingVertical: 13, borderRadius: 10 },
+  retryText: { color: '#fff', fontWeight: '600', fontSize: 15 },
+  loadingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: '#13111a', justifyContent: 'center', alignItems: 'center', zIndex: 10 },
 });

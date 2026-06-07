@@ -1,32 +1,31 @@
 {
   "expo": {
     "name": "EimemesChat AI",
-    "slug": "eimemeschat-ai",
-    "owner": "michaelkilong",
+    "slug": "eimemes-chat-ai",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./src/assets/icon.png",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "splash": {
-      "image": "./src/assets/splash.png",
+      "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#0d0d0d"
-    },
-    "assetBundlePatterns": ["**/*"],
-    "ios": {
-      "supportsTablet": false,
-      "bundleIdentifier": "com.eimemes.chat"
+      "backgroundColor": "#13111a"
     },
     "android": {
-      "adaptiveIcon": {
-        "foregroundImage": "./src/assets/adaptive-icon.png",
-        "backgroundColor": "#0d0d0d"
-      },
       "package": "com.eimemes.chat",
-      "googleServicesFile": "./google-services.json"
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#13111a"
+      },
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "plugins": [
-      "expo-font"
+      "react-native-webview"
     ],
     "extra": {
       "eas": {
