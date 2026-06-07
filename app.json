@@ -23,7 +23,8 @@
         "android.permission.ACCESS_NETWORK_STATE",
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
-      ]
+      ],
+      "kotlinVersion": "1.9.25"
     },
     "extra": {
       "eas": {
