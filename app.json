@@ -3,6 +3,7 @@
     "name": "EimemesChat AI",
     "slug": "eimemes-chat-ai",
     "version": "1.0.0",
+    "owner": "michaelkilong",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
