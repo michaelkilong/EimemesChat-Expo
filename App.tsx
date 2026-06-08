@@ -1,6 +1,6 @@
 // App.tsx
 // EimemesChat AI — WebView Wrapper
-// v1.2 — Fixed Google Auth redirect + back button
+// v1.3 — expo-web-browser for Google Auth + in-app browser for external links
 
 import React, { useRef, useState, useEffect } from 'react';
 import {
@@ -12,16 +12,19 @@ import {
   ActivityIndicator,
   SafeAreaView,
   BackHandler,
-  Linking,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import NetInfo from '@react-native-community/netinfo';
+import * as WebBrowser from 'expo-web-browser';
 
 const TARGET_URL = 'https://eimemes-chat-ai.vercel.app';
 
 const CHROME_UA =
   'Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 ' +
   '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
+
+// Required for expo-web-browser auth redirect
+WebBrowser.maybeCompleteAuthSession();
 
 export default function App() {
   const webviewRef = useRef<WebView>(null);
@@ -59,6 +62,18 @@ export default function App() {
     const handler = BackHandler.addEventListener('hardwareBackPress', backAction);
     return () => handler.remove();
   }, []);
+
+  // ── Open URL in in-app browser ─────────────────────────────────────────
+  const openInAppBrowser = async (url: string) => {
+    await WebBrowser.openBrowserAsync(url, {
+      toolbarColor: '#13111a',
+      controlsColor: '#a78bfa',
+      showTitle: true,
+      enableBarCollapsing: true,
+    });
+    // After browser closes, reload WebView to pick up auth session
+    setTimeout(() => webviewRef.current?.reload(), 500);
+  };
 
   if (isConnected === null) {
     return (
@@ -107,35 +122,38 @@ export default function App() {
           userAgent={CHROME_UA}
           originWhitelist={['*']}
           mixedContentMode="always"
+          thirdPartyCookiesEnabled
           onShouldStartLoadWithRequest={request => {
             const { url } = request;
-            // Let the app's own URLs through
+
+            // Always allow app's own domain
             if (url.startsWith('https://eimemes-chat-ai.vercel.app')) {
               return true;
             }
-            // Open Google auth in real Chrome
+
+            // Google auth → in-app browser
             if (
               url.includes('accounts.google.com') ||
               url.includes('google.com/o/oauth2') ||
               url.includes('oauth2.googleapis.com')
             ) {
-              Linking.openURL(url);
+              openInAppBrowser(url);
               return false;
             }
-            return true;
-          }}
-          onNavigationStateChange={nav => {
-            // Re-inject on every navigation to keep session alive
-            if (nav.url.startsWith('https://eimemes-chat-ai.vercel.app')) {
-              return;
+
+            // Any other external link → in-app browser
+            if (url.startsWith('http://') || url.startsWith('https://')) {
+              openInAppBrowser(url);
+              return false;
             }
+
+            return true;
           }}
           onLoadStart={() => setLoading(true)}
           onLoadEnd={() => setLoading(false)}
           onError={() => setLoading(false)}
           javaScriptEnabled
           domStorageEnabled
-          thirdPartyCookiesEnabled
           allowsInlineMediaPlayback
           mediaPlaybackRequiresUserAction={false}
           mediaCapturePermissionGrantType="grant"
