@@ -24,7 +24,19 @@
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
       ],
-      "kotlinVersion": "1.9.25"
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "eimemes-chat-ai.vercel.app"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
     },
     "extra": {
       "eas": {

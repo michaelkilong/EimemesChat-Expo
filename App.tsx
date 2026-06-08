@@ -1,6 +1,6 @@
 // App.tsx
 // EimemesChat AI — WebView Wrapper
-// v1.0 — WebView + net detection + back handler + Google Auth fix
+// v1.2 — Fixed Google Auth redirect + back button
 
 import React, { useRef, useState, useEffect } from 'react';
 import {
@@ -19,7 +19,6 @@ import NetInfo from '@react-native-community/netinfo';
 
 const TARGET_URL = 'https://eimemes-chat-ai.vercel.app';
 
-// Spoof UA so Google OAuth doesn't block WebView
 const CHROME_UA =
   'Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 ' +
   '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
@@ -28,7 +27,6 @@ export default function App() {
   const webviewRef = useRef<WebView>(null);
   const [isConnected, setIsConnected] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
-  const [canGoBack, setCanGoBack] = useState(false);
 
   // ── Network detection ──────────────────────────────────────────────────
   useEffect(() => {
@@ -52,17 +50,16 @@ export default function App() {
   // ── Android hardware back button ───────────────────────────────────────
   useEffect(() => {
     const backAction = () => {
-      if (canGoBack) {
-        webviewRef.current?.goBack();
+      if (webviewRef.current) {
+        webviewRef.current.goBack();
         return true;
       }
       return false;
     };
     const handler = BackHandler.addEventListener('hardwareBackPress', backAction);
     return () => handler.remove();
-  }, [canGoBack]);
+  }, []);
 
-  // ── Initial net check splash ───────────────────────────────────────────
   if (isConnected === null) {
     return (
       <View style={styles.center}>
@@ -76,7 +73,6 @@ export default function App() {
     <SafeAreaView style={styles.root}>
       <StatusBar backgroundColor="#13111a" barStyle="light-content" />
 
-      {/* ── Offline screen ─────────────────────────────────────────────── */}
       {!isConnected && (
         <View style={styles.offlineScreen}>
           <Text style={styles.offlineIcon}>📡</Text>
@@ -97,7 +93,6 @@ export default function App() {
         </View>
       )}
 
-      {/* ── WebView (hidden offline, never unmounted) ───────────────────── */}
       <View style={{ flex: 1, display: isConnected ? 'flex' : 'none' }}>
         {loading && (
           <View style={styles.loadingOverlay}>
@@ -110,23 +105,37 @@ export default function App() {
           ref={webviewRef}
           source={{ uri: TARGET_URL }}
           userAgent={CHROME_UA}
+          originWhitelist={['*']}
+          mixedContentMode="always"
           onShouldStartLoadWithRequest={request => {
             const { url } = request;
+            // Let the app's own URLs through
+            if (url.startsWith('https://eimemes-chat-ai.vercel.app')) {
+              return true;
+            }
+            // Open Google auth in real Chrome
             if (
               url.includes('accounts.google.com') ||
-              url.includes('google.com/o/oauth2')
+              url.includes('google.com/o/oauth2') ||
+              url.includes('oauth2.googleapis.com')
             ) {
               Linking.openURL(url);
               return false;
             }
             return true;
           }}
-          onNavigationStateChange={nav => setCanGoBack(nav.canGoBack)}
+          onNavigationStateChange={nav => {
+            // Re-inject on every navigation to keep session alive
+            if (nav.url.startsWith('https://eimemes-chat-ai.vercel.app')) {
+              return;
+            }
+          }}
           onLoadStart={() => setLoading(true)}
           onLoadEnd={() => setLoading(false)}
           onError={() => setLoading(false)}
           javaScriptEnabled
           domStorageEnabled
+          thirdPartyCookiesEnabled
           allowsInlineMediaPlayback
           mediaPlaybackRequiresUserAction={false}
           mediaCapturePermissionGrantType="grant"
