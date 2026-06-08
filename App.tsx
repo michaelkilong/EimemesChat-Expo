@@ -1,6 +1,6 @@
 // App.tsx
 // EimemesChat AI — WebView Wrapper
-// v1.4 — Removed Google auth interception (handled by web app now)
+// v1.5 — Google auth via Chrome Custom Tab + disable text selection
 
 import React, { useRef, useState, useEffect } from 'react';
 import {
@@ -62,6 +62,33 @@ export default function App() {
     return () => handler.remove();
   }, []);
 
+  // ── Handle messages from web app ───────────────────────────────────────
+  const handleMessage = async (event: any) => {
+    try {
+      const data = JSON.parse(event.nativeEvent.data);
+
+      if (data.type === 'GOOGLE_AUTH') {
+        // Open Google auth in Chrome Custom Tab
+        const result = await WebBrowser.openAuthSessionAsync(
+          data.url,
+          'https://eimemes-chat-ai.vercel.app'
+        );
+        // After auth completes or closes, reload WebView to pick up session
+        setTimeout(() => webviewRef.current?.reload(), 500);
+      }
+
+      if (data.type === 'OPEN_LINK') {
+        await WebBrowser.openBrowserAsync(data.url, {
+          toolbarColor: '#13111a',
+          controlsColor: '#a78bfa',
+          showTitle: true,
+          enableBarCollapsing: true,
+        });
+      }
+
+    } catch { /* ignore non-JSON messages */ }
+  };
+
   // ── Open external links in in-app browser ─────────────────────────────
   const openInAppBrowser = async (url: string) => {
     await WebBrowser.openBrowserAsync(url, {
@@ -120,17 +147,39 @@ export default function App() {
           originWhitelist={['*']}
           mixedContentMode="always"
           thirdPartyCookiesEnabled
+          onMessage={handleMessage}
+          onOpenWindow={event => {
+            openInAppBrowser(event.nativeEvent.targetUrl);
+          }}
           injectedJavaScript={`
-            const meta = document.createElement('meta');
-            meta.setAttribute('name', 'viewport');
-            meta.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
-            document.getElementsByTagName('head')[0].appendChild(meta);
+            (function() {
+              // Fix viewport — disable zoom
+              const meta = document.createElement('meta');
+              meta.setAttribute('name', 'viewport');
+              meta.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
+              document.getElementsByTagName('head')[0].appendChild(meta);
+
+              // Disable text selection everywhere except inputs
+              const style = document.createElement('style');
+              style.textContent = \`
+                * {
+                  -webkit-user-select: none !important;
+                  user-select: none !important;
+                  -webkit-touch-callout: none !important;
+                }
+                input, textarea, [contenteditable] {
+                  -webkit-user-select: text !important;
+                  user-select: text !important;
+                }
+              \`;
+              document.head.appendChild(style);
+            })();
             true;
           `}
           onShouldStartLoadWithRequest={request => {
             const { url } = request;
 
-            // Always allow app domain and Google auth URLs through
+            // Always allow app domain and auth URLs through
             if (
               url.startsWith('https://eimemes-chat-ai.vercel.app') ||
               url.includes('accounts.google.com') ||
