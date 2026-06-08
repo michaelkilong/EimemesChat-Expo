@@ -1,6 +1,6 @@
 // App.tsx
 // EimemesChat AI — WebView Wrapper
-// v1.3 — expo-web-browser for Google Auth + in-app browser for external links
+// v1.4 — Removed Google auth interception (handled by web app now)
 
 import React, { useRef, useState, useEffect } from 'react';
 import {
@@ -23,7 +23,6 @@ const CHROME_UA =
   'Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 ' +
   '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
 
-// Required for expo-web-browser auth redirect
 WebBrowser.maybeCompleteAuthSession();
 
 export default function App() {
@@ -63,7 +62,7 @@ export default function App() {
     return () => handler.remove();
   }, []);
 
-  // ── Open URL in in-app browser ─────────────────────────────────────────
+  // ── Open external links in in-app browser ─────────────────────────────
   const openInAppBrowser = async (url: string) => {
     await WebBrowser.openBrowserAsync(url, {
       toolbarColor: '#13111a',
@@ -71,8 +70,6 @@ export default function App() {
       showTitle: true,
       enableBarCollapsing: true,
     });
-    // After browser closes, reload WebView to pick up auth session
-    setTimeout(() => webviewRef.current?.reload(), 500);
   };
 
   if (isConnected === null) {
@@ -123,25 +120,28 @@ export default function App() {
           originWhitelist={['*']}
           mixedContentMode="always"
           thirdPartyCookiesEnabled
+          injectedJavaScript={`
+            const meta = document.createElement('meta');
+            meta.setAttribute('name', 'viewport');
+            meta.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
+            document.getElementsByTagName('head')[0].appendChild(meta);
+            true;
+          `}
           onShouldStartLoadWithRequest={request => {
             const { url } = request;
 
-            // Always allow app's own domain
-            if (url.startsWith('https://eimemes-chat-ai.vercel.app')) {
+            // Always allow app domain and Google auth URLs through
+            if (
+              url.startsWith('https://eimemes-chat-ai.vercel.app') ||
+              url.includes('accounts.google.com') ||
+              url.includes('google.com/o/oauth2') ||
+              url.includes('oauth2.googleapis.com') ||
+              url.includes('firebaseapp.com')
+            ) {
               return true;
             }
 
-            // Google auth → in-app browser
-            if (
-              url.includes('accounts.google.com') ||
-              url.includes('google.com/o/oauth2') ||
-              url.includes('oauth2.googleapis.com')
-            ) {
-              openInAppBrowser(url);
-              return false;
-            }
-
-            // Any other external link → in-app browser
+            // Open all other external links in in-app browser
             if (url.startsWith('http://') || url.startsWith('https://')) {
               openInAppBrowser(url);
               return false;
