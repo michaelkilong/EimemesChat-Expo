@@ -1,7 +1,6 @@
 # EimemesChat AI — Android WebView Wrapper
 
-Lightweight Android APK wrapping `eimemes-chat-ai.vercel.app` in a native shell.
-Built entirely from your phone — no laptop needed.
+Lightweight Android APK wrapping `eimemes-chat-ai.vercel.app` in a native shell
 
 ---
 
