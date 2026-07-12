@@ -1,8 +1,6 @@
 // App.tsx
 // EimemesChat AI — WebView Wrapper
-// v1.9 — Local push notifications (preset rotating reminder messages)
-// v1.8 — Reverted keyboard mode to resize; locked dark bg to prevent flash
-// v1.7 — Facebook-Lite skeleton loading + persistent UI with offline banner
+// v1.10 — Fixed Google Sign‑In & Native Speech fallback
 
 import React, { useRef, useState, useEffect } from 'react';
 import {
@@ -21,6 +19,8 @@ import NetInfo from '@react-native-community/netinfo';
 import * as WebBrowser from 'expo-web-browser';
 import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
+import * as Speech from 'expo-speech';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const TARGET_URL = 'https://eimemes-chat-ai.vercel.app';
 
@@ -38,7 +38,7 @@ Notifications.setNotificationHandler({
   }),
 });
 
-// ── Preset reminder messages — one is picked at random ──────────────────
+// ── Preset reminder messages ──────────────────────────────────────────
 const PRESET_MESSAGES = [
   { title: '💬 EimemesChat AI', body: "Got a question? I'm here whenever you need me." },
   { title: '✨ EimemesChat AI', body: "It's been a while — come say hi!" },
@@ -69,13 +69,17 @@ async function registerForNotifications(): Promise<boolean> {
 async function scheduleReminder() {
   await Notifications.cancelAllScheduledNotificationsAsync();
   const msg = PRESET_MESSAGES[Math.floor(Math.random() * PRESET_MESSAGES.length)];
+
+  const randomHour = Math.floor(Math.random() * 12) + 9;
+  const randomMinute = Math.floor(Math.random() * 60);
+
   await Notifications.scheduleNotificationAsync({
     content: { title: msg.title, body: msg.body },
-    trigger: { hour: 18, minute: 0, repeats: true },
+    trigger: { hour: randomHour, minute: randomMinute, repeats: true },
   });
 }
 
-// ── Pulsing skeleton bar ────────────────────────────────────────────────
+// ── Pulsing skeleton bar ──────────────────────────────────────────────
 function SkeletonBar({
   width, height = 14, radius, style,
 }: { width: number | string; height?: number; radius?: number; style?: any }) {
@@ -130,12 +134,13 @@ export default function App() {
   const [isConnected, setIsConnected] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+  const [webviewError, setWebviewError] = useState(false);
 
   const webviewOpacity = useRef(new Animated.Value(0)).current;
   const skeletonOpacity = useRef(new Animated.Value(1)).current;
   const bannerY = useRef(new Animated.Value(-80)).current;
 
-  // ── Network detection ──────────────────────────────────────────────────
+  // ── Network detection ────────────────────────────────────────────────
   useEffect(() => {
     NetInfo.fetch().then(state => setIsConnected(state.isConnected ?? false));
 
@@ -153,7 +158,7 @@ export default function App() {
     return () => unsub();
   }, [hasLoadedOnce]);
 
-  // ── Android hardware back button ───────────────────────────────────────
+  // ── Android hardware back button ─────────────────────────────────────
   useEffect(() => {
     const backAction = () => {
       if (webviewRef.current) {
@@ -166,7 +171,7 @@ export default function App() {
     return () => handler.remove();
   }, []);
 
-  // ── Fade WebView in / skeleton out once loaded ─────────────────────────
+  // ── Fade WebView in / skeleton out once loaded ───────────────────────
   useEffect(() => {
     if (!loading) {
       Animated.timing(webviewOpacity, { toValue: 1, duration: 300, useNativeDriver: true }).start();
@@ -174,7 +179,7 @@ export default function App() {
     }
   }, [loading]);
 
-  // ── Slide offline banner in/out ─────────────────────────────────────────
+  // ── Slide offline banner in/out ──────────────────────────────────────
   useEffect(() => {
     Animated.timing(bannerY, {
       toValue: !isConnected && hasLoadedOnce ? 0 : -80,
@@ -183,26 +188,35 @@ export default function App() {
     }).start();
   }, [isConnected, hasLoadedOnce]);
 
-  // ── Register + schedule notifications shortly after first load ─────────
+  // ── Register + schedule notifications only ONCE ─────────────────────
   useEffect(() => {
     if (!hasLoadedOnce) return;
-    const t = setTimeout(async () => {
+    (async () => {
+      const alreadyScheduled = await AsyncStorage.getItem('reminderScheduled');
+      if (alreadyScheduled) return;
       const granted = await registerForNotifications();
-      if (granted) scheduleReminder();
-    }, 3000);
-    return () => clearTimeout(t);
+      if (granted) {
+        await scheduleReminder();
+        await AsyncStorage.setItem('reminderScheduled', 'true');
+      }
+    })();
   }, [hasLoadedOnce]);
 
-  // ── Handle messages from web app ────────────────────────────────────────
+  // ── Handle messages from web app ─────────────────────────────────────
   const handleMessage = async (event: any) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
 
-      if (data.type === 'GOOGLE_AUTH') {
-        await WebBrowser.openAuthSessionAsync(data.url, 'https://eimemes-chat-ai.vercel.app');
-        setTimeout(() => webviewRef.current?.reload(), 500);
+      // Native speech fallback (if web app sends a SPEAK message)
+      if (data.type === 'SPEAK') {
+        Speech.speak(data.text || '', {
+          language: data.lang || 'en',
+          pitch: 1.0,
+          rate: 0.9,
+        });
       }
 
+      // Open external links in in‑app browser
       if (data.type === 'OPEN_LINK') {
         await WebBrowser.openBrowserAsync(data.url, {
           toolbarColor: '#13111a',
@@ -211,7 +225,11 @@ export default function App() {
           enableBarCollapsing: true,
         });
       }
-    } catch { /* ignore non-JSON messages */ }
+    } catch (e) {
+      if (__DEV__) {
+        console.warn('WebView message parse error:', e);
+      }
+    }
   };
 
   const openInAppBrowser = async (url: string) => {
@@ -261,7 +279,7 @@ export default function App() {
       <StatusBar backgroundColor="#13111a" barStyle="light-content" />
 
       <Animated.View style={[styles.offlineBanner, { transform: [{ translateY: bannerY }] }]}>
-        <Text style={styles.offlineBannerText}>⚠️  No internet connection</Text>
+        <Text style={styles.offlineBannerText}> No internet connection</Text>
       </Animated.View>
 
       <View style={{ flex: 1 }}>
@@ -269,6 +287,24 @@ export default function App() {
           <Animated.View style={[styles.skeletonOverlay, { opacity: skeletonOpacity }]}>
             <SkeletonScreen />
           </Animated.View>
+        )}
+
+        {webviewError && (
+          <View style={styles.errorOverlay}>
+            <Text style={styles.errorTitle}>Something went wrong</Text>
+            <Text style={styles.errorSubtitle}>The page couldn’t be loaded.</Text>
+            <TouchableOpacity
+              style={styles.retryBtn}
+              onPress={() => {
+                setWebviewError(false);
+                setLoading(true);
+                webviewRef.current?.reload();
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.retryText}>Tap to Retry</Text>
+            </TouchableOpacity>
+          </View>
         )}
 
         <Animated.View style={{ flex: 1, opacity: webviewOpacity }}>
@@ -279,8 +315,52 @@ export default function App() {
             originWhitelist={['*']}
             mixedContentMode="always"
             thirdPartyCookiesEnabled
+            sharedCookiesEnabled
             onMessage={handleMessage}
-            onOpenWindow={event => openInAppBrowser(event.nativeEvent.targetUrl)}
+            // Block any popup and redirect the entire page instead
+            onOpenWindow={event => {
+              // We never allow new windows – everything stays inside this WebView
+              return false;
+            }}
+            // This script runs after the page loads – it overrides window.open
+            // to perform a full redirect instead of opening a popup (fixes OAuth)
+            injectedJavaScriptBeforeContentLoaded={`
+              (function() {
+                // Override window.open to redirect the current page for Google OAuth URLs
+                var originalOpen = window.open;
+                window.open = function(url, name, features) {
+                  if (url && (
+                    url.includes('accounts.google.com') ||
+                    url.includes('google.com/o/oauth2') ||
+                    url.includes('oauth2.googleapis.com')
+                  )) {
+                    // Redirect the whole page to the OAuth URL (just like signInWithRedirect)
+                    window.location.href = url;
+                    return null; // no popup reference needed
+                  }
+                  // For other URLs, try the original (but usually we block them)
+                  return originalOpen.call(window, url, name, features);
+                };
+
+                // Replace SpeechSynthesis with native TTS bridge
+                if (window.speechSynthesis) {
+                  window.speechSynthesis.speak = function(utterance) {
+                    // Send message to React Native to speak the text
+                    window.ReactNativeWebView.postMessage(JSON.stringify({
+                      type: 'SPEAK',
+                      text: utterance.text,
+                      lang: utterance.lang || 'en',
+                    }));
+                  };
+                  // Ensure it exists as a function
+                  window.speechSynthesis.cancel = function() {};
+                  window.speechSynthesis.pause = function() {};
+                  window.speechSynthesis.resume = function() {};
+                  window.speechSynthesis.getVoices = function() { return []; };
+                }
+              })();
+              true;
+            `}
             injectedJavaScript={`
               (function() {
                 const meta = document.createElement('meta');
@@ -327,6 +407,7 @@ export default function App() {
             onLoadStart={() => {
               if (!skipNextLoadingOverlay.current) {
                 setLoading(true);
+                setWebviewError(false);
               }
             }}
             onLoadEnd={() => {
@@ -336,6 +417,7 @@ export default function App() {
             }}
             onError={() => {
               setLoading(false);
+              setWebviewError(true);
               skipNextLoadingOverlay.current = false;
             }}
             javaScriptEnabled
@@ -343,6 +425,7 @@ export default function App() {
             allowsInlineMediaPlayback
             mediaPlaybackRequiresUserAction={false}
             mediaCapturePermissionGrantType="grant"
+            androidLayerType="hardware"
             style={{ flex: 1, backgroundColor: '#13111a' }}
           />
         </Animated.View>
@@ -372,4 +455,15 @@ const styles = StyleSheet.create({
   skeletonTopbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 60 },
   skeletonCenter: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   skeletonInputWrap: { paddingBottom: 24 },
+
+  errorOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#13111a',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 20,
+    padding: 32,
+  },
+  errorTitle: { fontSize: 20, fontWeight: '700', color: '#f1f0f5', marginBottom: 8 },
+  errorSubtitle: { fontSize: 14, color: '#888', textAlign: 'center', marginBottom: 28 },
 });
