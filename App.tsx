@@ -21,6 +21,7 @@ import NetInfo from '@react-native-community/netinfo';
 import * as WebBrowser from 'expo-web-browser';
 import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const TARGET_URL = 'https://eimemes-chat-ai.vercel.app';
 
@@ -130,6 +131,7 @@ export default function App() {
   const [isConnected, setIsConnected] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+  const [webviewError, setWebviewError] = useState(false);
 
   const webviewOpacity = useRef(new Animated.Value(0)).current;
   const skeletonOpacity = useRef(new Animated.Value(1)).current;
@@ -183,14 +185,18 @@ export default function App() {
     }).start();
   }, [isConnected, hasLoadedOnce]);
 
-  // ── Register + schedule notifications shortly after first load ─────────
+  // ── Register + schedule notifications only ONCE ────────────────────────
   useEffect(() => {
     if (!hasLoadedOnce) return;
-    const t = setTimeout(async () => {
+    (async () => {
+      const alreadyScheduled = await AsyncStorage.getItem('reminderScheduled');
+      if (alreadyScheduled) return;
       const granted = await registerForNotifications();
-      if (granted) scheduleReminder();
-    }, 3000);
-    return () => clearTimeout(t);
+      if (granted) {
+        await scheduleReminder();
+        await AsyncStorage.setItem('reminderScheduled', 'true');
+      }
+    })();
   }, [hasLoadedOnce]);
 
   // ── Handle messages from web app ────────────────────────────────────────
@@ -198,10 +204,8 @@ export default function App() {
     try {
       const data = JSON.parse(event.nativeEvent.data);
 
-      if (data.type === 'GOOGLE_AUTH') {
-        await WebBrowser.openAuthSessionAsync(data.url, 'https://eimemes-chat-ai.vercel.app');
-        setTimeout(() => webviewRef.current?.reload(), 500);
-      }
+      // Removed the GOOGLE_AUTH handler – the WebView now handles Google OAuth natively
+      // by navigating to the consent screen and back.
 
       if (data.type === 'OPEN_LINK') {
         await WebBrowser.openBrowserAsync(data.url, {
@@ -211,7 +215,11 @@ export default function App() {
           enableBarCollapsing: true,
         });
       }
-    } catch { /* ignore non-JSON messages */ }
+    } catch (e) {
+      if (__DEV__) {
+        console.warn('WebView message parse error:', e);
+      }
+    }
   };
 
   const openInAppBrowser = async (url: string) => {
@@ -228,6 +236,7 @@ export default function App() {
     NetInfo.fetch().then(s => setIsConnected(s.isConnected ?? false));
   };
 
+  // ── Initial connection check (null) – show skeleton ────────────────────
   if (isConnected === null) {
     return (
       <SafeAreaView style={styles.root}>
@@ -237,6 +246,7 @@ export default function App() {
     );
   }
 
+  // ── No connection + first launch ───────────────────────────────────────
   if (!isConnected && !hasLoadedOnce) {
     return (
       <SafeAreaView style={styles.root}>
@@ -265,10 +275,30 @@ export default function App() {
       </Animated.View>
 
       <View style={{ flex: 1 }}>
+        {/* Skeleton loading overlay */}
         {loading && (
           <Animated.View style={[styles.skeletonOverlay, { opacity: skeletonOpacity }]}>
             <SkeletonScreen />
           </Animated.View>
+        )}
+
+        {/* Error fallback */}
+        {webviewError && (
+          <View style={styles.errorOverlay}>
+            <Text style={styles.errorTitle}>Something went wrong</Text>
+            <Text style={styles.errorSubtitle}>The page couldn’t be loaded.</Text>
+            <TouchableOpacity
+              style={styles.retryBtn}
+              onPress={() => {
+                setWebviewError(false);
+                setLoading(true);
+                webviewRef.current?.reload();
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.retryText}>Tap to Retry</Text>
+            </TouchableOpacity>
+          </View>
         )}
 
         <Animated.View style={{ flex: 1, opacity: webviewOpacity }}>
@@ -327,6 +357,7 @@ export default function App() {
             onLoadStart={() => {
               if (!skipNextLoadingOverlay.current) {
                 setLoading(true);
+                setWebviewError(false); // reset error on new load
               }
             }}
             onLoadEnd={() => {
@@ -336,6 +367,7 @@ export default function App() {
             }}
             onError={() => {
               setLoading(false);
+              setWebviewError(true);
               skipNextLoadingOverlay.current = false;
             }}
             javaScriptEnabled
@@ -372,4 +404,15 @@ const styles = StyleSheet.create({
   skeletonTopbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 60 },
   skeletonCenter: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   skeletonInputWrap: { paddingBottom: 24 },
+
+  errorOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#13111a',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 20,
+    padding: 32,
+  },
+  errorTitle: { fontSize: 20, fontWeight: '700', color: '#f1f0f5', marginBottom: 8 },
+  errorSubtitle: { fontSize: 14, color: '#888', textAlign: 'center', marginBottom: 28 },
 });
