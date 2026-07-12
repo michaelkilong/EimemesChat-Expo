@@ -1,5 +1,7 @@
 // App.tsx
 // EimemesChat AI — WebView Wrapper
+// v1.9 — Local push notifications (preset rotating reminder messages)
+// v1.8 — Reverted keyboard mode to resize; locked dark bg to prevent flash
 // v1.7 — Facebook-Lite skeleton loading + persistent UI with offline banner
 
 import React, { useRef, useState, useEffect } from 'react';
@@ -12,11 +14,13 @@ import {
   SafeAreaView,
   BackHandler,
   Animated,
+  Platform,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import NetInfo from '@react-native-community/netinfo';
 import * as WebBrowser from 'expo-web-browser';
 import * as Haptics from 'expo-haptics';
+import * as Notifications from 'expo-notifications';
 
 const TARGET_URL = 'https://eimemes-chat-ai.vercel.app';
 
@@ -25,6 +29,51 @@ const CHROME_UA =
   '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
 
 WebBrowser.maybeCompleteAuthSession();
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
+
+// ── Preset reminder messages — one is picked at random ──────────────────
+const PRESET_MESSAGES = [
+  { title: '💬 EimemesChat AI', body: "Got a question? I'm here whenever you need me." },
+  { title: '✨ EimemesChat AI', body: "It's been a while — come say hi!" },
+  { title: '🤖 EimemesChat AI', body: 'Your AI assistant is ready when you are.' },
+  { title: '💡 EimemesChat AI', body: "Got an idea? Let's talk it through." },
+];
+
+async function registerForNotifications(): Promise<boolean> {
+  const { status: existing } = await Notifications.getPermissionsAsync();
+  let finalStatus = existing;
+  if (existing !== 'granted') {
+    const { status } = await Notifications.requestPermissionsAsync();
+    finalStatus = status;
+  }
+  if (finalStatus !== 'granted') return false;
+
+  if (Platform.OS === 'android') {
+    await Notifications.setNotificationChannelAsync('default', {
+      name: 'default',
+      importance: Notifications.AndroidImportance.DEFAULT,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: '#a78bfa',
+    });
+  }
+  return true;
+}
+
+async function scheduleReminder() {
+  await Notifications.cancelAllScheduledNotificationsAsync();
+  const msg = PRESET_MESSAGES[Math.floor(Math.random() * PRESET_MESSAGES.length)];
+  await Notifications.scheduleNotificationAsync({
+    content: { title: msg.title, body: msg.body },
+    trigger: { hour: 18, minute: 0, repeats: true },
+  });
+}
 
 // ── Pulsing skeleton bar ────────────────────────────────────────────────
 function SkeletonBar({
@@ -53,7 +102,6 @@ function SkeletonBar({
   );
 }
 
-// ── Facebook-Lite style skeleton screen ──────────────────────────────────
 function SkeletonScreen() {
   return (
     <View style={styles.skeletonScreen}>
@@ -95,7 +143,6 @@ export default function App() {
       const connected = state.isConnected ?? false;
       setIsConnected(prev => {
         if (!prev && connected && hasLoadedOnce) {
-          // Already loaded once — refresh silently, no skeleton cover
           skipNextLoadingOverlay.current = true;
           setTimeout(() => webviewRef.current?.reload(), 500);
         }
@@ -136,6 +183,16 @@ export default function App() {
     }).start();
   }, [isConnected, hasLoadedOnce]);
 
+  // ── Register + schedule notifications shortly after first load ─────────
+  useEffect(() => {
+    if (!hasLoadedOnce) return;
+    const t = setTimeout(async () => {
+      const granted = await registerForNotifications();
+      if (granted) scheduleReminder();
+    }, 3000);
+    return () => clearTimeout(t);
+  }, [hasLoadedOnce]);
+
   // ── Handle messages from web app ────────────────────────────────────────
   const handleMessage = async (event: any) => {
     try {
@@ -171,7 +228,6 @@ export default function App() {
     NetInfo.fetch().then(s => setIsConnected(s.isConnected ?? false));
   };
 
-  // ── First check, before we know connection status yet ──────────────────
   if (isConnected === null) {
     return (
       <SafeAreaView style={styles.root}>
@@ -181,7 +237,6 @@ export default function App() {
     );
   }
 
-  // ── No internet AND nothing has ever loaded — genuine block ────────────
   if (!isConnected && !hasLoadedOnce) {
     return (
       <SafeAreaView style={styles.root}>
@@ -205,9 +260,8 @@ export default function App() {
     <SafeAreaView style={styles.root}>
       <StatusBar backgroundColor="#13111a" barStyle="light-content" />
 
-      {/* Offline warning banner — overlays UI instead of blocking it */}
       <Animated.View style={[styles.offlineBanner, { transform: [{ translateY: bannerY }] }]}>
-        <Text style={styles.offlineBannerText}> No internet connection</Text>
+        <Text style={styles.offlineBannerText}>⚠️  No internet connection</Text>
       </Animated.View>
 
       <View style={{ flex: 1 }}>
@@ -236,6 +290,9 @@ export default function App() {
 
                 const style = document.createElement('style');
                 style.textContent = \`
+                  html, body {
+                    background-color: #13111a !important;
+                  }
                   * {
                     -webkit-user-select: none !important;
                     user-select: none !important;
