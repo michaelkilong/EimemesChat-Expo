@@ -1,6 +1,6 @@
 // App.tsx
 // EimemesChat AI — WebView Wrapper
-// v1.6 — Premium polish: typing animation, fade transitions, haptics
+// v1.7 — Facebook-Lite skeleton loading + persistent UI with offline banner
 
 import React, { useRef, useState, useEffect } from 'react';
 import {
@@ -9,7 +9,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   StatusBar,
-  ActivityIndicator,
   SafeAreaView,
   BackHandler,
   Animated,
@@ -20,7 +19,6 @@ import * as WebBrowser from 'expo-web-browser';
 import * as Haptics from 'expo-haptics';
 
 const TARGET_URL = 'https://eimemes-chat-ai.vercel.app';
-const APP_NAME = 'EimemesChat AI';
 
 const CHROME_UA =
   'Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 ' +
@@ -28,41 +26,66 @@ const CHROME_UA =
 
 WebBrowser.maybeCompleteAuthSession();
 
-// ── Typing brand text with blinking cursor ─────────────────────────────
-function TypingBrand() {
-  const [visibleChars, setVisibleChars] = useState(0);
-  const cursorOpacity = useRef(new Animated.Value(1)).current;
+// ── Pulsing skeleton bar ────────────────────────────────────────────────
+function SkeletonBar({
+  width, height = 14, radius, style,
+}: { width: number | string; height?: number; radius?: number; style?: any }) {
+  const pulse = useRef(new Animated.Value(0.35)).current;
 
   useEffect(() => {
-    if (visibleChars < APP_NAME.length) {
-      const t = setTimeout(() => setVisibleChars(v => v + 1), 65);
-      return () => clearTimeout(t);
-    }
-    const blink = Animated.loop(
+    const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(cursorOpacity, { toValue: 0, duration: 400, useNativeDriver: true }),
-        Animated.timing(cursorOpacity, { toValue: 1, duration: 400, useNativeDriver: true }),
-      ]),
-      { iterations: 3 }
+        Animated.timing(pulse, { toValue: 0.85, duration: 650, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0.35, duration: 650, useNativeDriver: true }),
+      ])
     );
-    blink.start();
-    return () => blink.stop();
-  }, [visibleChars]);
+    loop.start();
+    return () => loop.stop();
+  }, []);
 
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-      <Text style={styles.brandText}>{APP_NAME.slice(0, visibleChars)}</Text>
-      <Animated.Text style={[styles.cursor, { opacity: cursorOpacity }]}>|</Animated.Text>
+    <Animated.View
+      style={[
+        { width, height, borderRadius: radius ?? height / 2, backgroundColor: '#2a2740', opacity: pulse },
+        style,
+      ]}
+    />
+  );
+}
+
+// ── Facebook-Lite style skeleton screen ──────────────────────────────────
+function SkeletonScreen() {
+  return (
+    <View style={styles.skeletonScreen}>
+      <View style={styles.skeletonTopbar}>
+        <SkeletonBar width={36} height={36} radius={18} />
+        <SkeletonBar width={130} height={14} />
+        <SkeletonBar width={36} height={36} radius={18} />
+      </View>
+
+      <View style={styles.skeletonCenter}>
+        <SkeletonBar width={210} height={26} style={{ marginBottom: 14 }} />
+        <SkeletonBar width={150} height={13} />
+      </View>
+
+      <View style={styles.skeletonInputWrap}>
+        <SkeletonBar width="100%" height={52} radius={26} />
+      </View>
     </View>
   );
 }
 
 export default function App() {
   const webviewRef = useRef<WebView>(null);
+  const skipNextLoadingOverlay = useRef(false);
+
   const [isConnected, setIsConnected] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+
   const webviewOpacity = useRef(new Animated.Value(0)).current;
-  const loadingOpacity = useRef(new Animated.Value(1)).current;
+  const skeletonOpacity = useRef(new Animated.Value(1)).current;
+  const bannerY = useRef(new Animated.Value(-80)).current;
 
   // ── Network detection ──────────────────────────────────────────────────
   useEffect(() => {
@@ -71,7 +94,9 @@ export default function App() {
     const unsub = NetInfo.addEventListener(state => {
       const connected = state.isConnected ?? false;
       setIsConnected(prev => {
-        if (!prev && connected) {
+        if (!prev && connected && hasLoadedOnce) {
+          // Already loaded once — refresh silently, no skeleton cover
+          skipNextLoadingOverlay.current = true;
           setTimeout(() => webviewRef.current?.reload(), 500);
         }
         return connected;
@@ -79,7 +104,7 @@ export default function App() {
     });
 
     return () => unsub();
-  }, []);
+  }, [hasLoadedOnce]);
 
   // ── Android hardware back button ───────────────────────────────────────
   useEffect(() => {
@@ -94,15 +119,24 @@ export default function App() {
     return () => handler.remove();
   }, []);
 
-  // ── Fade WebView in once loaded ────────────────────────────────────────
+  // ── Fade WebView in / skeleton out once loaded ─────────────────────────
   useEffect(() => {
     if (!loading) {
-      Animated.timing(webviewOpacity, { toValue: 1, duration: 350, useNativeDriver: true }).start();
-      Animated.timing(loadingOpacity, { toValue: 0, duration: 250, useNativeDriver: true }).start();
+      Animated.timing(webviewOpacity, { toValue: 1, duration: 300, useNativeDriver: true }).start();
+      Animated.timing(skeletonOpacity, { toValue: 0, duration: 200, useNativeDriver: true }).start();
     }
   }, [loading]);
 
-  // ── Handle messages from web app ───────────────────────────────────────
+  // ── Slide offline banner in/out ─────────────────────────────────────────
+  useEffect(() => {
+    Animated.timing(bannerY, {
+      toValue: !isConnected && hasLoadedOnce ? 0 : -80,
+      duration: 300,
+      useNativeDriver: true,
+    }).start();
+  }, [isConnected, hasLoadedOnce]);
+
+  // ── Handle messages from web app ────────────────────────────────────────
   const handleMessage = async (event: any) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
@@ -137,12 +171,33 @@ export default function App() {
     NetInfo.fetch().then(s => setIsConnected(s.isConnected ?? false));
   };
 
+  // ── First check, before we know connection status yet ──────────────────
   if (isConnected === null) {
     return (
-      <View style={styles.center}>
-        <TypingBrand />
-        <ActivityIndicator size="large" color="#a78bfa" style={{ marginTop: 20 }} />
-      </View>
+      <SafeAreaView style={styles.root}>
+        <StatusBar backgroundColor="#13111a" barStyle="light-content" />
+        <SkeletonScreen />
+      </SafeAreaView>
+    );
+  }
+
+  // ── No internet AND nothing has ever loaded — genuine block ────────────
+  if (!isConnected && !hasLoadedOnce) {
+    return (
+      <SafeAreaView style={styles.root}>
+        <StatusBar backgroundColor="#13111a" barStyle="light-content" />
+        <View style={styles.offlineScreen}>
+          <Text style={styles.offlineIcon}>📡</Text>
+          <Text style={styles.offlineTitle}>No Connection</Text>
+          <Text style={styles.offlineSub}>
+            EimemesChat needs internet for first launch.{'\n'}
+            Check your Wi-Fi or mobile data.
+          </Text>
+          <TouchableOpacity style={styles.retryBtn} onPress={handleRetry} activeOpacity={0.8}>
+            <Text style={styles.retryText}>Try Again</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
     );
   }
 
@@ -150,102 +205,114 @@ export default function App() {
     <SafeAreaView style={styles.root}>
       <StatusBar backgroundColor="#13111a" barStyle="light-content" />
 
-      {!isConnected && (
-        <View style={styles.offlineScreen}>
-          <Text style={styles.offlineIcon}>📡</Text>
-          <Text style={styles.offlineTitle}>No Connection</Text>
-          <Text style={styles.offlineSub}>
-            EimemesChat needs internet to work.{'\n'}
-            Check your Wi-Fi or mobile data.
-          </Text>
-          <TouchableOpacity style={styles.retryBtn} onPress={handleRetry} activeOpacity={0.8}>
-            <Text style={styles.retryText}>Try Again</Text>
-          </TouchableOpacity>
-        </View>
-      )}
+      {/* Offline warning banner — overlays UI instead of blocking it */}
+      <Animated.View style={[styles.offlineBanner, { transform: [{ translateY: bannerY }] }]}>
+        <Text style={styles.offlineBannerText}> No internet connection</Text>
+      </Animated.View>
 
-      <Animated.View style={{ flex: 1, display: isConnected ? 'flex' : 'none', opacity: webviewOpacity }}>
+      <View style={{ flex: 1 }}>
         {loading && (
-          <Animated.View style={[styles.loadingOverlay, { opacity: loadingOpacity }]}>
-            <TypingBrand />
-            <ActivityIndicator size="large" color="#a78bfa" style={{ marginTop: 20 }} />
+          <Animated.View style={[styles.skeletonOverlay, { opacity: skeletonOpacity }]}>
+            <SkeletonScreen />
           </Animated.View>
         )}
 
-        <WebView
-          ref={webviewRef}
-          source={{ uri: TARGET_URL }}
-          userAgent={CHROME_UA}
-          originWhitelist={['*']}
-          mixedContentMode="always"
-          thirdPartyCookiesEnabled
-          onMessage={handleMessage}
-          onOpenWindow={event => openInAppBrowser(event.nativeEvent.targetUrl)}
-          injectedJavaScript={`
-            (function() {
-              const meta = document.createElement('meta');
-              meta.setAttribute('name', 'viewport');
-              meta.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
-              document.getElementsByTagName('head')[0].appendChild(meta);
+        <Animated.View style={{ flex: 1, opacity: webviewOpacity }}>
+          <WebView
+            ref={webviewRef}
+            source={{ uri: TARGET_URL }}
+            userAgent={CHROME_UA}
+            originWhitelist={['*']}
+            mixedContentMode="always"
+            thirdPartyCookiesEnabled
+            onMessage={handleMessage}
+            onOpenWindow={event => openInAppBrowser(event.nativeEvent.targetUrl)}
+            injectedJavaScript={`
+              (function() {
+                const meta = document.createElement('meta');
+                meta.setAttribute('name', 'viewport');
+                meta.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
+                document.getElementsByTagName('head')[0].appendChild(meta);
 
-              const style = document.createElement('style');
-              style.textContent = \`
-                * {
-                  -webkit-user-select: none !important;
-                  user-select: none !important;
-                  -webkit-touch-callout: none !important;
-                }
-                input, textarea, [contenteditable] {
-                  -webkit-user-select: text !important;
-                  user-select: text !important;
-                }
-              \`;
-              document.head.appendChild(style);
-            })();
-            true;
-          `}
-          onShouldStartLoadWithRequest={request => {
-            const { url } = request;
-            if (
-              url.startsWith('https://eimemes-chat-ai.vercel.app') ||
-              url.includes('accounts.google.com') ||
-              url.includes('google.com/o/oauth2') ||
-              url.includes('oauth2.googleapis.com') ||
-              url.includes('firebaseapp.com')
-            ) {
+                const style = document.createElement('style');
+                style.textContent = \`
+                  * {
+                    -webkit-user-select: none !important;
+                    user-select: none !important;
+                    -webkit-touch-callout: none !important;
+                  }
+                  input, textarea, [contenteditable] {
+                    -webkit-user-select: text !important;
+                    user-select: text !important;
+                  }
+                \`;
+                document.head.appendChild(style);
+              })();
+              true;
+            `}
+            onShouldStartLoadWithRequest={request => {
+              const { url } = request;
+              if (
+                url.startsWith('https://eimemes-chat-ai.vercel.app') ||
+                url.includes('accounts.google.com') ||
+                url.includes('google.com/o/oauth2') ||
+                url.includes('oauth2.googleapis.com') ||
+                url.includes('firebaseapp.com')
+              ) {
+                return true;
+              }
+              if (url.startsWith('http://') || url.startsWith('https://')) {
+                openInAppBrowser(url);
+                return false;
+              }
               return true;
-            }
-            if (url.startsWith('http://') || url.startsWith('https://')) {
-              openInAppBrowser(url);
-              return false;
-            }
-            return true;
-          }}
-          onLoadStart={() => setLoading(true)}
-          onLoadEnd={() => setLoading(false)}
-          onError={() => setLoading(false)}
-          javaScriptEnabled
-          domStorageEnabled
-          allowsInlineMediaPlayback
-          mediaPlaybackRequiresUserAction={false}
-          mediaCapturePermissionGrantType="grant"
-          style={{ flex: 1, backgroundColor: '#13111a' }}
-        />
-      </Animated.View>
+            }}
+            onLoadStart={() => {
+              if (!skipNextLoadingOverlay.current) {
+                setLoading(true);
+              }
+            }}
+            onLoadEnd={() => {
+              setLoading(false);
+              setHasLoadedOnce(true);
+              skipNextLoadingOverlay.current = false;
+            }}
+            onError={() => {
+              setLoading(false);
+              skipNextLoadingOverlay.current = false;
+            }}
+            javaScriptEnabled
+            domStorageEnabled
+            allowsInlineMediaPlayback
+            mediaPlaybackRequiresUserAction={false}
+            mediaCapturePermissionGrantType="grant"
+            style={{ flex: 1, backgroundColor: '#13111a' }}
+          />
+        </Animated.View>
+      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#13111a' },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#13111a' },
-  brandText: { fontSize: 26, fontWeight: '800', color: '#f1f0f5', letterSpacing: 0.5 },
-  cursor: { fontSize: 26, fontWeight: '800', color: '#a78bfa', marginLeft: 2 },
+
   offlineScreen: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#13111a', padding: 32 },
   offlineIcon: { fontSize: 64, marginBottom: 20 },
   offlineTitle: { fontSize: 22, fontWeight: '700', color: '#f1f0f5', marginBottom: 10 },
   offlineSub: { fontSize: 14, color: '#888', textAlign: 'center', lineHeight: 22, marginBottom: 36 },
   retryBtn: { backgroundColor: '#7c3aed', paddingHorizontal: 36, paddingVertical: 13, borderRadius: 10 },
   retryText: { color: '#fff', fontWeight: '600', fontSize: 15 },
-  loadingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: '#13111a', justifyContent: 'center', alignItems: 'center', zIndex: 10 },
+
+  offlineBanner: {
+    position: 'absolute', top: 0, left: 0, right: 0, zIndex: 30,
+    backgroundColor: '#7f1d1d', paddingVertical: 9, alignItems: 'center',
+  },
+  offlineBannerText: { color: '#fecaca', fontSize: 13, fontWeight: '600' },
+
+  skeletonOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: '#13111a', zIndex: 10 },
+  skeletonScreen: { flex: 1, backgroundColor: '#13111a', paddingTop: 16, paddingHorizontal: 16 },
+  skeletonTopbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 60 },
+  skeletonCenter: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  skeletonInputWrap: { paddingBottom: 24 },
 });
