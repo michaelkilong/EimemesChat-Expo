@@ -24,6 +24,7 @@
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
       ],
+      "softwareKeyboardLayoutMode": "pan",
       "intentFilters": [
         {
           "action": "VIEW",
