@@ -1,6 +1,6 @@
 // App.tsx
 // EimemesChat AI — WebView Wrapper
-// v1.5 — Google auth via Chrome Custom Tab + disable text selection
+// v1.6 — Premium polish: typing animation, fade transitions, haptics
 
 import React, { useRef, useState, useEffect } from 'react';
 import {
@@ -12,12 +12,15 @@ import {
   ActivityIndicator,
   SafeAreaView,
   BackHandler,
+  Animated,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import NetInfo from '@react-native-community/netinfo';
 import * as WebBrowser from 'expo-web-browser';
+import * as Haptics from 'expo-haptics';
 
 const TARGET_URL = 'https://eimemes-chat-ai.vercel.app';
+const APP_NAME = 'EimemesChat AI';
 
 const CHROME_UA =
   'Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 ' +
@@ -25,16 +28,45 @@ const CHROME_UA =
 
 WebBrowser.maybeCompleteAuthSession();
 
+// ── Typing brand text with blinking cursor ─────────────────────────────
+function TypingBrand() {
+  const [visibleChars, setVisibleChars] = useState(0);
+  const cursorOpacity = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (visibleChars < APP_NAME.length) {
+      const t = setTimeout(() => setVisibleChars(v => v + 1), 65);
+      return () => clearTimeout(t);
+    }
+    const blink = Animated.loop(
+      Animated.sequence([
+        Animated.timing(cursorOpacity, { toValue: 0, duration: 400, useNativeDriver: true }),
+        Animated.timing(cursorOpacity, { toValue: 1, duration: 400, useNativeDriver: true }),
+      ]),
+      { iterations: 3 }
+    );
+    blink.start();
+    return () => blink.stop();
+  }, [visibleChars]);
+
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+      <Text style={styles.brandText}>{APP_NAME.slice(0, visibleChars)}</Text>
+      <Animated.Text style={[styles.cursor, { opacity: cursorOpacity }]}>|</Animated.Text>
+    </View>
+  );
+}
+
 export default function App() {
   const webviewRef = useRef<WebView>(null);
   const [isConnected, setIsConnected] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
+  const webviewOpacity = useRef(new Animated.Value(0)).current;
+  const loadingOpacity = useRef(new Animated.Value(1)).current;
 
   // ── Network detection ──────────────────────────────────────────────────
   useEffect(() => {
-    NetInfo.fetch().then(state => {
-      setIsConnected(state.isConnected ?? false);
-    });
+    NetInfo.fetch().then(state => setIsConnected(state.isConnected ?? false));
 
     const unsub = NetInfo.addEventListener(state => {
       const connected = state.isConnected ?? false;
@@ -62,18 +94,21 @@ export default function App() {
     return () => handler.remove();
   }, []);
 
+  // ── Fade WebView in once loaded ────────────────────────────────────────
+  useEffect(() => {
+    if (!loading) {
+      Animated.timing(webviewOpacity, { toValue: 1, duration: 350, useNativeDriver: true }).start();
+      Animated.timing(loadingOpacity, { toValue: 0, duration: 250, useNativeDriver: true }).start();
+    }
+  }, [loading]);
+
   // ── Handle messages from web app ───────────────────────────────────────
   const handleMessage = async (event: any) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
 
       if (data.type === 'GOOGLE_AUTH') {
-        // Open Google auth in Chrome Custom Tab
-        const result = await WebBrowser.openAuthSessionAsync(
-          data.url,
-          'https://eimemes-chat-ai.vercel.app'
-        );
-        // After auth completes or closes, reload WebView to pick up session
+        await WebBrowser.openAuthSessionAsync(data.url, 'https://eimemes-chat-ai.vercel.app');
         setTimeout(() => webviewRef.current?.reload(), 500);
       }
 
@@ -85,11 +120,9 @@ export default function App() {
           enableBarCollapsing: true,
         });
       }
-
     } catch { /* ignore non-JSON messages */ }
   };
 
-  // ── Open external links in in-app browser ─────────────────────────────
   const openInAppBrowser = async (url: string) => {
     await WebBrowser.openBrowserAsync(url, {
       toolbarColor: '#13111a',
@@ -99,11 +132,16 @@ export default function App() {
     });
   };
 
+  const handleRetry = async () => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    NetInfo.fetch().then(s => setIsConnected(s.isConnected ?? false));
+  };
+
   if (isConnected === null) {
     return (
       <View style={styles.center}>
-        <Text style={styles.brandText}>EimemesChat AI</Text>
-        <ActivityIndicator size="large" color="#a78bfa" style={{ marginTop: 16 }} />
+        <TypingBrand />
+        <ActivityIndicator size="large" color="#a78bfa" style={{ marginTop: 20 }} />
       </View>
     );
   }
@@ -120,24 +158,18 @@ export default function App() {
             EimemesChat needs internet to work.{'\n'}
             Check your Wi-Fi or mobile data.
           </Text>
-          <TouchableOpacity
-            style={styles.retryBtn}
-            onPress={() =>
-              NetInfo.fetch().then(s => setIsConnected(s.isConnected ?? false))
-            }
-            activeOpacity={0.8}
-          >
+          <TouchableOpacity style={styles.retryBtn} onPress={handleRetry} activeOpacity={0.8}>
             <Text style={styles.retryText}>Try Again</Text>
           </TouchableOpacity>
         </View>
       )}
 
-      <View style={{ flex: 1, display: isConnected ? 'flex' : 'none' }}>
+      <Animated.View style={{ flex: 1, display: isConnected ? 'flex' : 'none', opacity: webviewOpacity }}>
         {loading && (
-          <View style={styles.loadingOverlay}>
-            <Text style={styles.brandText}>EimemesChat AI</Text>
-            <ActivityIndicator size="large" color="#a78bfa" style={{ marginTop: 16 }} />
-          </View>
+          <Animated.View style={[styles.loadingOverlay, { opacity: loadingOpacity }]}>
+            <TypingBrand />
+            <ActivityIndicator size="large" color="#a78bfa" style={{ marginTop: 20 }} />
+          </Animated.View>
         )}
 
         <WebView
@@ -148,18 +180,14 @@ export default function App() {
           mixedContentMode="always"
           thirdPartyCookiesEnabled
           onMessage={handleMessage}
-          onOpenWindow={event => {
-            openInAppBrowser(event.nativeEvent.targetUrl);
-          }}
+          onOpenWindow={event => openInAppBrowser(event.nativeEvent.targetUrl)}
           injectedJavaScript={`
             (function() {
-              // Fix viewport — disable zoom
               const meta = document.createElement('meta');
               meta.setAttribute('name', 'viewport');
               meta.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
               document.getElementsByTagName('head')[0].appendChild(meta);
 
-              // Disable text selection everywhere except inputs
               const style = document.createElement('style');
               style.textContent = \`
                 * {
@@ -178,8 +206,6 @@ export default function App() {
           `}
           onShouldStartLoadWithRequest={request => {
             const { url } = request;
-
-            // Always allow app domain and auth URLs through
             if (
               url.startsWith('https://eimemes-chat-ai.vercel.app') ||
               url.includes('accounts.google.com') ||
@@ -189,13 +215,10 @@ export default function App() {
             ) {
               return true;
             }
-
-            // Open all other external links in in-app browser
             if (url.startsWith('http://') || url.startsWith('https://')) {
               openInAppBrowser(url);
               return false;
             }
-
             return true;
           }}
           onLoadStart={() => setLoading(true)}
@@ -208,7 +231,7 @@ export default function App() {
           mediaCapturePermissionGrantType="grant"
           style={{ flex: 1, backgroundColor: '#13111a' }}
         />
-      </View>
+      </Animated.View>
     </SafeAreaView>
   );
 }
@@ -216,7 +239,8 @@ export default function App() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#13111a' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#13111a' },
-  brandText: { fontSize: 26, fontWeight: '800', color: '#a78bfa', letterSpacing: 0.5 },
+  brandText: { fontSize: 26, fontWeight: '800', color: '#f1f0f5', letterSpacing: 0.5 },
+  cursor: { fontSize: 26, fontWeight: '800', color: '#a78bfa', marginLeft: 2 },
   offlineScreen: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#13111a', padding: 32 },
   offlineIcon: { fontSize: 64, marginBottom: 20 },
   offlineTitle: { fontSize: 22, fontWeight: '700', color: '#f1f0f5', marginBottom: 10 },
