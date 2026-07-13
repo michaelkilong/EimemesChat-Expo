@@ -1,5 +1,6 @@
 // App.tsx
 // EimemesChat AI — WebView Wrapper
+// v2.1 — Downgraded google-signin to ^13.0.0 (known prebuild bug on 14+), defensive idToken extraction
 // v2.0 — Native Google Sign-In (replaces broken browser-redirect approach)
 // v1.9 — Local push notifications (preset rotating reminder messages)
 // v1.8 — softwareKeyboardLayoutMode: resize; locked dark bg to prevent flash
@@ -77,7 +78,6 @@ async function scheduleReminder() {
   });
 }
 
-// ── Pulsing skeleton bar ────────────────────────────────────────────────
 function SkeletonBar({
   width, height = 14, radius, style,
 }: { width: number | string; height?: number; radius?: number; style?: any }) {
@@ -135,14 +135,12 @@ export default function App() {
   const skeletonOpacity = useRef(new Animated.Value(1)).current;
   const bannerY = useRef(new Animated.Value(-80)).current;
 
-  // ── Configure Google Sign-In once on mount ──────────────────────────────
   useEffect(() => {
     GoogleSignin.configure({
       webClientId: GOOGLE_WEB_CLIENT_ID,
     });
   }, []);
 
-  // ── Network detection ──────────────────────────────────────────────────
   useEffect(() => {
     NetInfo.fetch().then(state => setIsConnected(state.isConnected ?? false));
 
@@ -160,7 +158,6 @@ export default function App() {
     return () => unsub();
   }, [hasLoadedOnce]);
 
-  // ── Android hardware back button ───────────────────────────────────────
   useEffect(() => {
     const backAction = () => {
       if (webviewRef.current) {
@@ -173,7 +170,6 @@ export default function App() {
     return () => handler.remove();
   }, []);
 
-  // ── Fade WebView in / skeleton out once loaded ─────────────────────────
   useEffect(() => {
     if (!loading) {
       Animated.timing(webviewOpacity, { toValue: 1, duration: 300, useNativeDriver: true }).start();
@@ -181,7 +177,6 @@ export default function App() {
     }
   }, [loading]);
 
-  // ── Slide offline banner in/out ─────────────────────────────────────────
   useEffect(() => {
     Animated.timing(bannerY, {
       toValue: !isConnected && hasLoadedOnce ? 0 : -80,
@@ -190,7 +185,6 @@ export default function App() {
     }).start();
   }, [isConnected, hasLoadedOnce]);
 
-  // ── Register + schedule notifications shortly after first load ─────────
   useEffect(() => {
     if (!hasLoadedOnce) return;
     const t = setTimeout(async () => {
@@ -200,12 +194,12 @@ export default function App() {
     return () => clearTimeout(t);
   }, [hasLoadedOnce]);
 
-  // ── Native Google Sign-In → hand token to the webview's Firebase ───────
   const handleNativeGoogleSignIn = async () => {
     try {
       await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
       const response = await GoogleSignin.signIn();
-      const idToken = response.data?.idToken;
+      // Handle both response shapes across package versions
+      const idToken = (response as any)?.data?.idToken ?? (response as any)?.idToken ?? null;
 
       if (idToken) {
         const script = `
@@ -231,7 +225,6 @@ export default function App() {
     }
   };
 
-  // ── Handle messages from web app ────────────────────────────────────────
   const handleMessage = async (event: any) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);

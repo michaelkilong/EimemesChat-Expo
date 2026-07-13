@@ -43,7 +43,7 @@
     },
     "plugins": [
       "expo-notifications",
-      "@react-native-google-signin/google-signin"
+      "@react-native-google-signin/google-signin/app.plugin.js"
     ],
     "extra": {
       "eas": {
