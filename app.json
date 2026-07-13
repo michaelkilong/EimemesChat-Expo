@@ -14,6 +14,7 @@
     },
     "android": {
       "package": "com.eimemes.chat",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#13111a"
@@ -41,7 +42,8 @@
       ]
     },
     "plugins": [
-      "expo-notifications"
+      "expo-notifications",
+      "@react-native-google-signin/google-signin"
     ],
     "extra": {
       "eas": {

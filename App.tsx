@@ -1,6 +1,9 @@
 // App.tsx
 // EimemesChat AI — WebView Wrapper
-// v1.10 — Fixed Google Sign‑In & Native Speech fallback
+// v2.0 — Native Google Sign-In (replaces broken browser-redirect approach)
+// v1.9 — Local push notifications (preset rotating reminder messages)
+// v1.8 — softwareKeyboardLayoutMode: resize; locked dark bg to prevent flash
+// v1.7 — Facebook-Lite skeleton loading + persistent UI with offline banner
 
 import React, { useRef, useState, useEffect } from 'react';
 import {
@@ -19,10 +22,10 @@ import NetInfo from '@react-native-community/netinfo';
 import * as WebBrowser from 'expo-web-browser';
 import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
-import * as Speech from 'expo-speech';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { GoogleSignin, isErrorWithCode, statusCodes } from '@react-native-google-signin/google-signin';
 
 const TARGET_URL = 'https://eimemes-chat-ai.vercel.app';
+const GOOGLE_WEB_CLIENT_ID = '230417181657-7v30t8ogq03broga9p676p3f9lltng1a.apps.googleusercontent.com';
 
 const CHROME_UA =
   'Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 ' +
@@ -38,7 +41,6 @@ Notifications.setNotificationHandler({
   }),
 });
 
-// ── Preset reminder messages ──────────────────────────────────────────
 const PRESET_MESSAGES = [
   { title: '💬 EimemesChat AI', body: "Got a question? I'm here whenever you need me." },
   { title: '✨ EimemesChat AI', body: "It's been a while — come say hi!" },
@@ -69,17 +71,13 @@ async function registerForNotifications(): Promise<boolean> {
 async function scheduleReminder() {
   await Notifications.cancelAllScheduledNotificationsAsync();
   const msg = PRESET_MESSAGES[Math.floor(Math.random() * PRESET_MESSAGES.length)];
-
-  const randomHour = Math.floor(Math.random() * 12) + 9;
-  const randomMinute = Math.floor(Math.random() * 60);
-
   await Notifications.scheduleNotificationAsync({
     content: { title: msg.title, body: msg.body },
-    trigger: { hour: randomHour, minute: randomMinute, repeats: true },
+    trigger: { hour: 18, minute: 0, repeats: true },
   });
 }
 
-// ── Pulsing skeleton bar ──────────────────────────────────────────────
+// ── Pulsing skeleton bar ────────────────────────────────────────────────
 function SkeletonBar({
   width, height = 14, radius, style,
 }: { width: number | string; height?: number; radius?: number; style?: any }) {
@@ -114,12 +112,10 @@ function SkeletonScreen() {
         <SkeletonBar width={130} height={14} />
         <SkeletonBar width={36} height={36} radius={18} />
       </View>
-
       <View style={styles.skeletonCenter}>
         <SkeletonBar width={210} height={26} style={{ marginBottom: 14 }} />
         <SkeletonBar width={150} height={13} />
       </View>
-
       <View style={styles.skeletonInputWrap}>
         <SkeletonBar width="100%" height={52} radius={26} />
       </View>
@@ -134,13 +130,19 @@ export default function App() {
   const [isConnected, setIsConnected] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
-  const [webviewError, setWebviewError] = useState(false);
 
   const webviewOpacity = useRef(new Animated.Value(0)).current;
   const skeletonOpacity = useRef(new Animated.Value(1)).current;
   const bannerY = useRef(new Animated.Value(-80)).current;
 
-  // ── Network detection ────────────────────────────────────────────────
+  // ── Configure Google Sign-In once on mount ──────────────────────────────
+  useEffect(() => {
+    GoogleSignin.configure({
+      webClientId: GOOGLE_WEB_CLIENT_ID,
+    });
+  }, []);
+
+  // ── Network detection ──────────────────────────────────────────────────
   useEffect(() => {
     NetInfo.fetch().then(state => setIsConnected(state.isConnected ?? false));
 
@@ -158,7 +160,7 @@ export default function App() {
     return () => unsub();
   }, [hasLoadedOnce]);
 
-  // ── Android hardware back button ─────────────────────────────────────
+  // ── Android hardware back button ───────────────────────────────────────
   useEffect(() => {
     const backAction = () => {
       if (webviewRef.current) {
@@ -171,7 +173,7 @@ export default function App() {
     return () => handler.remove();
   }, []);
 
-  // ── Fade WebView in / skeleton out once loaded ───────────────────────
+  // ── Fade WebView in / skeleton out once loaded ─────────────────────────
   useEffect(() => {
     if (!loading) {
       Animated.timing(webviewOpacity, { toValue: 1, duration: 300, useNativeDriver: true }).start();
@@ -179,7 +181,7 @@ export default function App() {
     }
   }, [loading]);
 
-  // ── Slide offline banner in/out ──────────────────────────────────────
+  // ── Slide offline banner in/out ─────────────────────────────────────────
   useEffect(() => {
     Animated.timing(bannerY, {
       toValue: !isConnected && hasLoadedOnce ? 0 : -80,
@@ -188,35 +190,56 @@ export default function App() {
     }).start();
   }, [isConnected, hasLoadedOnce]);
 
-  // ── Register + schedule notifications only ONCE ─────────────────────
+  // ── Register + schedule notifications shortly after first load ─────────
   useEffect(() => {
     if (!hasLoadedOnce) return;
-    (async () => {
-      const alreadyScheduled = await AsyncStorage.getItem('reminderScheduled');
-      if (alreadyScheduled) return;
+    const t = setTimeout(async () => {
       const granted = await registerForNotifications();
-      if (granted) {
-        await scheduleReminder();
-        await AsyncStorage.setItem('reminderScheduled', 'true');
-      }
-    })();
+      if (granted) scheduleReminder();
+    }, 3000);
+    return () => clearTimeout(t);
   }, [hasLoadedOnce]);
 
-  // ── Handle messages from web app ─────────────────────────────────────
+  // ── Native Google Sign-In → hand token to the webview's Firebase ───────
+  const handleNativeGoogleSignIn = async () => {
+    try {
+      await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+      const response = await GoogleSignin.signIn();
+      const idToken = response.data?.idToken;
+
+      if (idToken) {
+        const script = `
+          (function() {
+            if (window.__handleNativeGoogleAuth) {
+              window.__handleNativeGoogleAuth(${JSON.stringify(idToken)});
+            }
+          })();
+          true;
+        `;
+        webviewRef.current?.injectJavaScript(script);
+      }
+    } catch (err) {
+      if (isErrorWithCode(err)) {
+        if (err.code === statusCodes.SIGN_IN_CANCELLED) {
+          // user backed out of the picker — do nothing
+        } else if (err.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+          console.log('Google Play Services not available');
+        } else {
+          console.log('Google Sign-In error', err.code);
+        }
+      }
+    }
+  };
+
+  // ── Handle messages from web app ────────────────────────────────────────
   const handleMessage = async (event: any) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
 
-      // Native speech fallback (if web app sends a SPEAK message)
-      if (data.type === 'SPEAK') {
-        Speech.speak(data.text || '', {
-          language: data.lang || 'en',
-          pitch: 1.0,
-          rate: 0.9,
-        });
+      if (data.type === 'NATIVE_GOOGLE_SIGNIN') {
+        handleNativeGoogleSignIn();
       }
 
-      // Open external links in in‑app browser
       if (data.type === 'OPEN_LINK') {
         await WebBrowser.openBrowserAsync(data.url, {
           toolbarColor: '#13111a',
@@ -225,11 +248,7 @@ export default function App() {
           enableBarCollapsing: true,
         });
       }
-    } catch (e) {
-      if (__DEV__) {
-        console.warn('WebView message parse error:', e);
-      }
-    }
+    } catch { /* ignore non-JSON messages */ }
   };
 
   const openInAppBrowser = async (url: string) => {
@@ -279,7 +298,7 @@ export default function App() {
       <StatusBar backgroundColor="#13111a" barStyle="light-content" />
 
       <Animated.View style={[styles.offlineBanner, { transform: [{ translateY: bannerY }] }]}>
-        <Text style={styles.offlineBannerText}> No internet connection</Text>
+        <Text style={styles.offlineBannerText}>⚠️  No internet connection</Text>
       </Animated.View>
 
       <View style={{ flex: 1 }}>
@@ -287,24 +306,6 @@ export default function App() {
           <Animated.View style={[styles.skeletonOverlay, { opacity: skeletonOpacity }]}>
             <SkeletonScreen />
           </Animated.View>
-        )}
-
-        {webviewError && (
-          <View style={styles.errorOverlay}>
-            <Text style={styles.errorTitle}>Something went wrong</Text>
-            <Text style={styles.errorSubtitle}>The page couldn’t be loaded.</Text>
-            <TouchableOpacity
-              style={styles.retryBtn}
-              onPress={() => {
-                setWebviewError(false);
-                setLoading(true);
-                webviewRef.current?.reload();
-              }}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.retryText}>Tap to Retry</Text>
-            </TouchableOpacity>
-          </View>
         )}
 
         <Animated.View style={{ flex: 1, opacity: webviewOpacity }}>
@@ -315,52 +316,8 @@ export default function App() {
             originWhitelist={['*']}
             mixedContentMode="always"
             thirdPartyCookiesEnabled
-            sharedCookiesEnabled
             onMessage={handleMessage}
-            // Block any popup and redirect the entire page instead
-            onOpenWindow={event => {
-              // We never allow new windows – everything stays inside this WebView
-              return false;
-            }}
-            // This script runs after the page loads – it overrides window.open
-            // to perform a full redirect instead of opening a popup (fixes OAuth)
-            injectedJavaScriptBeforeContentLoaded={`
-              (function() {
-                // Override window.open to redirect the current page for Google OAuth URLs
-                var originalOpen = window.open;
-                window.open = function(url, name, features) {
-                  if (url && (
-                    url.includes('accounts.google.com') ||
-                    url.includes('google.com/o/oauth2') ||
-                    url.includes('oauth2.googleapis.com')
-                  )) {
-                    // Redirect the whole page to the OAuth URL (just like signInWithRedirect)
-                    window.location.href = url;
-                    return null; // no popup reference needed
-                  }
-                  // For other URLs, try the original (but usually we block them)
-                  return originalOpen.call(window, url, name, features);
-                };
-
-                // Replace SpeechSynthesis with native TTS bridge
-                if (window.speechSynthesis) {
-                  window.speechSynthesis.speak = function(utterance) {
-                    // Send message to React Native to speak the text
-                    window.ReactNativeWebView.postMessage(JSON.stringify({
-                      type: 'SPEAK',
-                      text: utterance.text,
-                      lang: utterance.lang || 'en',
-                    }));
-                  };
-                  // Ensure it exists as a function
-                  window.speechSynthesis.cancel = function() {};
-                  window.speechSynthesis.pause = function() {};
-                  window.speechSynthesis.resume = function() {};
-                  window.speechSynthesis.getVoices = function() { return []; };
-                }
-              })();
-              true;
-            `}
+            onOpenWindow={event => openInAppBrowser(event.nativeEvent.targetUrl)}
             injectedJavaScript={`
               (function() {
                 const meta = document.createElement('meta');
@@ -391,9 +348,6 @@ export default function App() {
               const { url } = request;
               if (
                 url.startsWith('https://eimemes-chat-ai.vercel.app') ||
-                url.includes('accounts.google.com') ||
-                url.includes('google.com/o/oauth2') ||
-                url.includes('oauth2.googleapis.com') ||
                 url.includes('firebaseapp.com')
               ) {
                 return true;
@@ -407,7 +361,6 @@ export default function App() {
             onLoadStart={() => {
               if (!skipNextLoadingOverlay.current) {
                 setLoading(true);
-                setWebviewError(false);
               }
             }}
             onLoadEnd={() => {
@@ -417,7 +370,6 @@ export default function App() {
             }}
             onError={() => {
               setLoading(false);
-              setWebviewError(true);
               skipNextLoadingOverlay.current = false;
             }}
             javaScriptEnabled
@@ -425,7 +377,6 @@ export default function App() {
             allowsInlineMediaPlayback
             mediaPlaybackRequiresUserAction={false}
             mediaCapturePermissionGrantType="grant"
-            androidLayerType="hardware"
             style={{ flex: 1, backgroundColor: '#13111a' }}
           />
         </Animated.View>
@@ -436,34 +387,20 @@ export default function App() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#13111a' },
-
   offlineScreen: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#13111a', padding: 32 },
   offlineIcon: { fontSize: 64, marginBottom: 20 },
   offlineTitle: { fontSize: 22, fontWeight: '700', color: '#f1f0f5', marginBottom: 10 },
   offlineSub: { fontSize: 14, color: '#888', textAlign: 'center', lineHeight: 22, marginBottom: 36 },
   retryBtn: { backgroundColor: '#7c3aed', paddingHorizontal: 36, paddingVertical: 13, borderRadius: 10 },
   retryText: { color: '#fff', fontWeight: '600', fontSize: 15 },
-
   offlineBanner: {
     position: 'absolute', top: 0, left: 0, right: 0, zIndex: 30,
     backgroundColor: '#7f1d1d', paddingVertical: 9, alignItems: 'center',
   },
   offlineBannerText: { color: '#fecaca', fontSize: 13, fontWeight: '600' },
-
   skeletonOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: '#13111a', zIndex: 10 },
   skeletonScreen: { flex: 1, backgroundColor: '#13111a', paddingTop: 16, paddingHorizontal: 16 },
   skeletonTopbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 60 },
   skeletonCenter: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   skeletonInputWrap: { paddingBottom: 24 },
-
-  errorOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#13111a',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 20,
-    padding: 32,
-  },
-  errorTitle: { fontSize: 20, fontWeight: '700', color: '#f1f0f5', marginBottom: 8 },
-  errorSubtitle: { fontSize: 14, color: '#888', textAlign: 'center', marginBottom: 28 },
 });
