@@ -1,5 +1,6 @@
 // App.tsx
 // EimemesChat AI — WebView Wrapper
+// v2.4 — Native TTS via expo-speech (postMessage bridge, matches auth/mailto pattern)
 // v2.3 — Native Google session clears on sign-out (was silently reusing last account)
 // v2.2 — mailto:/tel:/sms: links open native apps instead of failing to load
 // v2.1 — Downgraded google-signin to ^13.0.0 (known prebuild bug on 14+), defensive idToken extraction
@@ -26,6 +27,7 @@ import NetInfo from '@react-native-community/netinfo';
 import * as WebBrowser from 'expo-web-browser';
 import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
+import * as Speech from 'expo-speech';
 import { GoogleSignin, isErrorWithCode, statusCodes } from '@react-native-google-signin/google-signin';
 
 const TARGET_URL = 'https://eimemes-chat-ai.vercel.app';
@@ -197,6 +199,15 @@ export default function App() {
     return () => clearTimeout(t);
   }, [hasLoadedOnce]);
 
+  const notifyWebViewTTSFinished = () => {
+    webviewRef.current?.injectJavaScript(`
+      (function() {
+        if (window.__handleNativeTTSFinished) { window.__handleNativeTTSFinished(); }
+      })();
+      true;
+    `);
+  };
+
   const handleNativeGoogleSignIn = async () => {
     try {
       await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
@@ -246,6 +257,21 @@ export default function App() {
 
       if (data.type === 'NATIVE_GOOGLE_SIGNOUT') {
         handleNativeGoogleSignOut();
+      }
+
+      if (data.type === 'NATIVE_TTS_SPEAK' && typeof data.text === 'string' && data.text.trim()) {
+        Speech.stop();
+        Speech.speak(data.text, {
+          language: 'en-US',
+          onDone: notifyWebViewTTSFinished,
+          onStopped: notifyWebViewTTSFinished,
+          onError: notifyWebViewTTSFinished,
+        });
+      }
+
+      if (data.type === 'NATIVE_TTS_STOP') {
+        Speech.stop();
+        notifyWebViewTTSFinished();
       }
 
       if (data.type === 'OPEN_LINK') {
