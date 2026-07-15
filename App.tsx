@@ -1,5 +1,7 @@
 // App.tsx
 // EimemesChat AI — WebView Wrapper
+// v2.3 — Native Google session clears on sign-out (was silently reusing last account)
+// v2.2 — mailto:/tel:/sms: links open native apps instead of failing to load
 // v2.1 — Downgraded google-signin to ^13.0.0 (known prebuild bug on 14+), defensive idToken extraction
 // v2.0 — Native Google Sign-In (replaces broken browser-redirect approach)
 // v1.9 — Local push notifications (preset rotating reminder messages)
@@ -17,6 +19,7 @@ import {
   BackHandler,
   Animated,
   Platform,
+  Linking,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import NetInfo from '@react-native-community/netinfo';
@@ -198,7 +201,6 @@ export default function App() {
     try {
       await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
       const response = await GoogleSignin.signIn();
-      // Handle both response shapes across package versions
       const idToken = (response as any)?.data?.idToken ?? (response as any)?.idToken ?? null;
 
       if (idToken) {
@@ -225,12 +227,25 @@ export default function App() {
     }
   };
 
+  // ── Clears the cached native Google session on app sign-out ────────────
+  const handleNativeGoogleSignOut = async () => {
+    try {
+      await GoogleSignin.signOut();
+    } catch (err) {
+      console.log('Google native sign-out error', err);
+    }
+  };
+
   const handleMessage = async (event: any) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
 
       if (data.type === 'NATIVE_GOOGLE_SIGNIN') {
         handleNativeGoogleSignIn();
+      }
+
+      if (data.type === 'NATIVE_GOOGLE_SIGNOUT') {
+        handleNativeGoogleSignOut();
       }
 
       if (data.type === 'OPEN_LINK') {
@@ -339,6 +354,12 @@ export default function App() {
             `}
             onShouldStartLoadWithRequest={request => {
               const { url } = request;
+
+              if (url.startsWith('mailto:') || url.startsWith('tel:') || url.startsWith('sms:')) {
+                Linking.openURL(url).catch(() => {});
+                return false;
+              }
+
               if (
                 url.startsWith('https://eimemes-chat-ai.vercel.app') ||
                 url.includes('firebaseapp.com')
