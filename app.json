@@ -42,8 +42,16 @@
       ]
     },
     "plugins": [
-      "expo-notifications",
-      "@react-native-google-signin/google-signin/app.plugin.js"
+  "expo-notifications",
+  "@react-native-google-signin/google-signin/app.plugin.js",
+  [
+    "expo-image-picker",
+    {
+      "photosPermission": "Allow EimemesChat AI to access your photos so you can share them in chat.",
+      "cameraPermission": "Allow EimemesChat AI to use your camera to take photos to share in chat."
+    }
+  ],
+  "expo-document-picker"
     ],
     "extra": {
       "eas": {

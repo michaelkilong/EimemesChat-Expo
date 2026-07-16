@@ -1,5 +1,6 @@
 // App.tsx
 // EimemesChat AI — WebView Wrapper
+// v2.5 — Custom native file picker sheet (camera/photo/document), theme-synced from web CSS vars
 // v2.4 — Native TTS via expo-speech (postMessage bridge, matches auth/mailto pattern)
 // v2.3 — Native Google session clears on sign-out (was silently reusing last account)
 // v2.2 — mailto:/tel:/sms: links open native apps instead of failing to load
@@ -28,6 +29,8 @@ import * as WebBrowser from 'expo-web-browser';
 import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
 import * as Speech from 'expo-speech';
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 import { GoogleSignin, isErrorWithCode, statusCodes } from '@react-native-google-signin/google-signin';
 
 const TARGET_URL = 'https://eimemes-chat-ai.vercel.app';
@@ -36,6 +39,17 @@ const GOOGLE_WEB_CLIENT_ID = '230417181657-7v30t8ogq03broga9p676p3f9lltng1a.apps
 const CHROME_UA =
   'Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 ' +
   '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
+
+const DEFAULT_SHEET_THEME = {
+  bg: '#13111a',
+  surface: '#211f30',
+  text1: '#f1f0f5',
+  text3: '#888888',
+  border: 'rgba(255,255,255,0.12)',
+  accent: '#a78bfa',
+};
+
+type SheetTheme = typeof DEFAULT_SHEET_THEME;
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -48,10 +62,10 @@ Notifications.setNotificationHandler({
 });
 
 const PRESET_MESSAGES = [
-  { title: '💬 EimemesChat AI', body: "Got a question? I'm here whenever you need me." },
-  { title: '✨ EimemesChat AI', body: "It's been a while — come say hi!" },
-  { title: '🤖 EimemesChat AI', body: 'Your AI assistant is ready when you are.' },
-  { title: '💡 EimemesChat AI', body: "Got an idea? Let's talk it through." },
+  { title:'EimemesChat AI', body: "Got a question? I'm here whenever you need me💬" },
+  { title: ' EimemesChat AI', body: "It's been a while — come say hi!✨" },
+  { title: ' EimemesChat AI', body: 'Your AI assistant is ready when you are🤖' },
+  { title: ' EimemesChat AI', body: "Got an idea? Let's talk it through💡." },
 ];
 
 async function registerForNotifications(): Promise<boolean> {
@@ -128,6 +142,25 @@ function SkeletonScreen() {
   );
 }
 
+// ── File picker bottom sheet row ─────────────────────────────────────────
+function SheetRow({
+  icon, label, onPress, theme, isLast,
+}: { icon: string; label: string; onPress: () => void; theme: SheetTheme; isLast?: boolean }) {
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={0.6}
+      style={[
+        sheetStyles.row,
+        { borderBottomColor: theme.border, borderBottomWidth: isLast ? 0 : StyleSheet.hairlineWidth },
+      ]}
+    >
+      <Text style={sheetStyles.rowIcon}>{icon}</Text>
+      <Text style={[sheetStyles.rowLabel, { color: theme.text1 }]}>{label}</Text>
+    </TouchableOpacity>
+  );
+}
+
 export default function App() {
   const webviewRef = useRef<WebView>(null);
   const skipNextLoadingOverlay = useRef(false);
@@ -135,6 +168,11 @@ export default function App() {
   const [isConnected, setIsConnected] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+
+  const [sheetRendered, setSheetRendered] = useState(false);
+  const [sheetTheme, setSheetTheme] = useState<SheetTheme>(DEFAULT_SHEET_THEME);
+  const sheetY = useRef(new Animated.Value(400)).current;
+  const backdropOpacity = useRef(new Animated.Value(0)).current;
 
   const webviewOpacity = useRef(new Animated.Value(0)).current;
   const skeletonOpacity = useRef(new Animated.Value(1)).current;
@@ -165,6 +203,10 @@ export default function App() {
 
   useEffect(() => {
     const backAction = () => {
+      if (sheetRendered) {
+        hideFilePicker();
+        return true;
+      }
       if (webviewRef.current) {
         webviewRef.current.goBack();
         return true;
@@ -173,7 +215,7 @@ export default function App() {
     };
     const handler = BackHandler.addEventListener('hardwareBackPress', backAction);
     return () => handler.remove();
-  }, []);
+  }, [sheetRendered]);
 
   useEffect(() => {
     if (!loading) {
@@ -208,6 +250,73 @@ export default function App() {
     `);
   };
 
+  const sendPickedFileToWebView = (base64: string, filename: string, mimeType: string) => {
+    const script = `
+      (function() {
+        if (window.__handleNativeFilePicked) {
+          window.__handleNativeFilePicked(${JSON.stringify(base64)}, ${JSON.stringify(filename)}, ${JSON.stringify(mimeType)});
+        }
+      })();
+      true;
+    `;
+    webviewRef.current?.injectJavaScript(script);
+  };
+
+  // ── File picker sheet show/hide ──────────────────────────────────────
+  const showFilePicker = (theme?: Partial<SheetTheme>) => {
+    setSheetTheme({
+      bg: theme?.bg?.trim() || DEFAULT_SHEET_THEME.bg,
+      surface: theme?.surface?.trim() || DEFAULT_SHEET_THEME.surface,
+      text1: theme?.text1?.trim() || DEFAULT_SHEET_THEME.text1,
+      text3: theme?.text3?.trim() || DEFAULT_SHEET_THEME.text3,
+      border: theme?.border?.trim() || DEFAULT_SHEET_THEME.border,
+      accent: theme?.accent?.trim() || DEFAULT_SHEET_THEME.accent,
+    });
+    setSheetRendered(true);
+    Animated.parallel([
+      Animated.timing(sheetY, { toValue: 0, duration: 280, useNativeDriver: true }),
+      Animated.timing(backdropOpacity, { toValue: 1, duration: 220, useNativeDriver: true }),
+    ]).start();
+  };
+
+  const hideFilePicker = () => {
+    Animated.parallel([
+      Animated.timing(sheetY, { toValue: 400, duration: 220, useNativeDriver: true }),
+      Animated.timing(backdropOpacity, { toValue: 0, duration: 200, useNativeDriver: true }),
+    ]).start(() => setSheetRendered(false));
+  };
+
+  const pickFromCamera = async () => {
+    hideFilePicker();
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!perm.granted) return;
+    const result = await ImagePicker.launchCameraAsync({ base64: true, quality: 0.8 });
+    if (!result.canceled && result.assets?.[0]?.base64) {
+      const asset = result.assets[0];
+      sendPickedFileToWebView(asset.base64!, asset.fileName || `photo-${Date.now()}.jpg`, asset.mimeType || 'image/jpeg');
+    }
+  };
+
+  const pickFromLibrary = async () => {
+    hideFilePicker();
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) return;
+    const result = await ImagePicker.launchImageLibraryAsync({ base64: true, quality: 0.8 });
+    if (!result.canceled && result.assets?.[0]?.base64) {
+      const asset = result.assets[0];
+      sendPickedFileToWebView(asset.base64!, asset.fileName || `image-${Date.now()}.jpg`, asset.mimeType || 'image/jpeg');
+    }
+  };
+
+  const pickDocument = async () => {
+    hideFilePicker();
+    const result = await DocumentPicker.getDocumentAsync({ type: '*/*', base64: true } as any);
+    if (!result.canceled && (result as any).assets?.[0]?.base64) {
+      const asset = (result as any).assets[0];
+      sendPickedFileToWebView(asset.base64, asset.name, asset.mimeType || 'application/octet-stream');
+    }
+  };
+
   const handleNativeGoogleSignIn = async () => {
     try {
       await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
@@ -238,7 +347,6 @@ export default function App() {
     }
   };
 
-  // ── Clears the cached native Google session on app sign-out ────────────
   const handleNativeGoogleSignOut = async () => {
     try {
       await GoogleSignin.signOut();
@@ -272,6 +380,10 @@ export default function App() {
       if (data.type === 'NATIVE_TTS_STOP') {
         Speech.stop();
         notifyWebViewTTSFinished();
+      }
+
+      if (data.type === 'NATIVE_FILE_PICKER') {
+        showFilePicker(data.theme);
       }
 
       if (data.type === 'OPEN_LINK') {
@@ -332,7 +444,7 @@ export default function App() {
       <StatusBar backgroundColor="#13111a" barStyle="light-content" />
 
       <Animated.View style={[styles.offlineBanner, { transform: [{ translateY: bannerY }] }]}>
-        <Text style={styles.offlineBannerText}>⚠️  No internet connection</Text>
+        <Text style={styles.offlineBannerText}>No internet connection</Text>
       </Animated.View>
 
       <View style={{ flex: 1 }}>
@@ -421,6 +533,39 @@ export default function App() {
           />
         </Animated.View>
       </View>
+
+      {/* ── Native file picker bottom sheet ─────────────────────────────── */}
+      {sheetRendered && (
+        <>
+          <Animated.View style={[sheetStyles.backdrop, { opacity: backdropOpacity }]}>
+            <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={hideFilePicker} />
+          </Animated.View>
+
+          <Animated.View
+            style={[
+              sheetStyles.sheet,
+              { backgroundColor: sheetTheme.surface, transform: [{ translateY: sheetY }] },
+            ]}
+          >
+            <View style={[sheetStyles.handle, { backgroundColor: sheetTheme.border }]} />
+            <Text style={[sheetStyles.title, { color: sheetTheme.text3 }]}>Add attachment</Text>
+
+            <View style={{ borderRadius: 14, overflow: 'hidden', backgroundColor: sheetTheme.bg }}>
+              <SheetRow icon="📷" label="Take Photo" onPress={pickFromCamera} theme={sheetTheme} />
+              <SheetRow icon="🖼️" label="Choose Photo" onPress={pickFromLibrary} theme={sheetTheme} />
+              <SheetRow icon="📄" label="Choose File" onPress={pickDocument} theme={sheetTheme} isLast />
+            </View>
+
+            <TouchableOpacity
+              onPress={hideFilePicker}
+              activeOpacity={0.7}
+              style={[sheetStyles.cancelBtn, { backgroundColor: sheetTheme.bg }]}
+            >
+              <Text style={[sheetStyles.cancelText, { color: sheetTheme.accent }]}>Cancel</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </>
+      )}
     </SafeAreaView>
   );
 }
@@ -443,4 +588,41 @@ const styles = StyleSheet.create({
   skeletonTopbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 60 },
   skeletonCenter: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   skeletonInputWrap: { paddingBottom: 24 },
+});
+
+const sheetStyles = StyleSheet.create({
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    zIndex: 40,
+  },
+  sheet: {
+    position: 'absolute',
+    left: 0, right: 0, bottom: 0,
+    zIndex: 50,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 32,
+  },
+  handle: {
+    width: 36, height: 4, borderRadius: 2,
+    alignSelf: 'center', marginBottom: 14,
+  },
+  title: {
+    fontSize: 12, fontWeight: '600', letterSpacing: 0.4,
+    textTransform: 'uppercase', marginBottom: 10, marginLeft: 4,
+  },
+  row: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingVertical: 14, paddingHorizontal: 14,
+  },
+  rowIcon: { fontSize: 20, marginRight: 14, width: 24, textAlign: 'center' },
+  rowLabel: { fontSize: 16, fontWeight: '500' },
+  cancelBtn: {
+    marginTop: 12, borderRadius: 14,
+    paddingVertical: 15, alignItems: 'center',
+  },
+  cancelText: { fontSize: 16, fontWeight: '600' },
 });
