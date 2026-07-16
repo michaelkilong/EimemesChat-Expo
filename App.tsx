@@ -1,13 +1,13 @@
 // App.tsx
 // EimemesChat AI — WebView Wrapper
-// v2.5 — Custom native file picker sheet (camera/photo/document), theme-synced from web CSS vars
-// v2.4 — Native TTS via expo-speech (postMessage bridge, matches auth/mailto pattern)
-// v2.3 — Native Google session clears on sign-out (was silently reusing last account)
-// v2.2 — mailto:/tel:/sms: links open native apps instead of failing to load
-// v2.1 — Downgraded google-signin to ^13.0.0 (known prebuild bug on 14+), defensive idToken extraction
-// v2.0 — Native Google Sign-In (replaces broken browser-redirect approach)
-// v1.9 — Local push notifications (preset rotating reminder messages)
-// v1.8 — softwareKeyboardLayoutMode: resize; locked dark bg to prevent flash
+// v2.5 — Custom native file picker sheet (Ionicons), theme-synced from web CSS vars
+// v2.4 — Native TTS via expo-speech (postMessage bridge)
+// v2.3 — Native Google session clears on sign-out
+// v2.2 — mailto:/tel:/sms: links open native apps
+// v2.1 — Downgraded google-signin to ^13.0.0, defensive idToken extraction
+// v2.0 — Native Google Sign-In
+// v1.9 — Local push notifications
+// v1.8 — softwareKeyboardLayoutMode: resize; locked dark bg
 // v1.7 — Facebook-Lite skeleton loading + persistent UI with offline banner
 
 import React, { useRef, useState, useEffect } from 'react';
@@ -32,6 +32,7 @@ import * as Speech from 'expo-speech';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { GoogleSignin, isErrorWithCode, statusCodes } from '@react-native-google-signin/google-signin';
+import { Ionicons } from '@expo/vector-icons';
 
 const TARGET_URL = 'https://eimemes-chat-ai.vercel.app';
 const GOOGLE_WEB_CLIENT_ID = '230417181657-7v30t8ogq03broga9p676p3f9lltng1a.apps.googleusercontent.com';
@@ -62,10 +63,10 @@ Notifications.setNotificationHandler({
 });
 
 const PRESET_MESSAGES = [
-  { title:'EimemesChat AI', body: "Got a question? I'm here whenever you need me💬" },
-  { title: ' EimemesChat AI', body: "It's been a while — come say hi!✨" },
-  { title: ' EimemesChat AI', body: 'Your AI assistant is ready when you are🤖' },
-  { title: ' EimemesChat AI', body: "Got an idea? Let's talk it through💡." },
+  { title: '💬 EimemesChat AI', body: "Got a question? I'm here whenever you need me." },
+  { title: '✨ EimemesChat AI', body: "It's been a while — come say hi!" },
+  { title: '🤖 EimemesChat AI', body: 'Your AI assistant is ready when you are.' },
+  { title: '💡 EimemesChat AI', body: "Got an idea? Let's talk it through." },
 ];
 
 async function registerForNotifications(): Promise<boolean> {
@@ -144,8 +145,14 @@ function SkeletonScreen() {
 
 // ── File picker bottom sheet row ─────────────────────────────────────────
 function SheetRow({
-  icon, label, onPress, theme, isLast,
-}: { icon: string; label: string; onPress: () => void; theme: SheetTheme; isLast?: boolean }) {
+  iconComponent, label, onPress, theme, isLast,
+}: {
+  iconComponent: React.ReactNode;
+  label: string;
+  onPress: () => void;
+  theme: SheetTheme;
+  isLast?: boolean;
+}) {
   return (
     <TouchableOpacity
       onPress={onPress}
@@ -155,7 +162,7 @@ function SheetRow({
         { borderBottomColor: theme.border, borderBottomWidth: isLast ? 0 : StyleSheet.hairlineWidth },
       ]}
     >
-      <Text style={sheetStyles.rowIcon}>{icon}</Text>
+      <View style={sheetStyles.rowIcon}>{iconComponent}</View>
       <Text style={[sheetStyles.rowLabel, { color: theme.text1 }]}>{label}</Text>
     </TouchableOpacity>
   );
@@ -444,7 +451,7 @@ export default function App() {
       <StatusBar backgroundColor="#13111a" barStyle="light-content" />
 
       <Animated.View style={[styles.offlineBanner, { transform: [{ translateY: bannerY }] }]}>
-        <Text style={styles.offlineBannerText}>No internet connection</Text>
+        <Text style={styles.offlineBannerText}>⚠️  No internet connection</Text>
       </Animated.View>
 
       <View style={{ flex: 1 }}>
@@ -551,12 +558,29 @@ export default function App() {
             <Text style={[sheetStyles.title, { color: sheetTheme.text3 }]}>Add attachment</Text>
 
             <View style={{ borderRadius: 14, overflow: 'hidden', backgroundColor: sheetTheme.bg }}>
-              <SheetRow icon="📷" label="Take Photo" onPress={pickFromCamera} theme={sheetTheme} />
-              <SheetRow icon="🖼️" label="Choose Photo" onPress={pickFromLibrary} theme={sheetTheme} />
-              <SheetRow icon="📄" label="Choose File" onPress={pickDocument} theme={sheetTheme} isLast />
+              <SheetRow
+                iconComponent={<Ionicons name="camera-outline" size={20} color={sheetTheme.text1} />}
+                label="Take Photo"
+                onPress={pickFromCamera}
+                theme={sheetTheme}
+              />
+              <SheetRow
+                iconComponent={<Ionicons name="image-outline" size={20} color={sheetTheme.text1} />}
+                label="Choose Photo"
+                onPress={pickFromLibrary}
+                theme={sheetTheme}
+              />
+              <SheetRow
+                iconComponent={<Ionicons name="document-outline" size={20} color={sheetTheme.text1} />}
+                label="Choose File"
+                onPress={pickDocument}
+                theme={sheetTheme}
+                isLast
+              />
             </View>
 
-            <TouchableOpacity
+            
+             <TouchableOpacity
               onPress={hideFilePicker}
               activeOpacity={0.7}
               style={[sheetStyles.cancelBtn, { backgroundColor: sheetTheme.bg }]}
@@ -618,7 +642,7 @@ const sheetStyles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center',
     paddingVertical: 14, paddingHorizontal: 14,
   },
-  rowIcon: { fontSize: 20, marginRight: 14, width: 24, textAlign: 'center' },
+  rowIcon: { width: 24, marginRight: 14, alignItems: 'center' },
   rowLabel: { fontSize: 16, fontWeight: '500' },
   cancelBtn: {
     marginTop: 12, borderRadius: 14,
