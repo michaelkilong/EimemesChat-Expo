@@ -1,10 +1,12 @@
-// App.tsx (Expo)
-// v3.0 — Hybrid architecture: native screens + WebView chat
+// App.tsx (Expo) — v3.1 (native screens: Settings, Profile, EditProfile, Personalization)
 import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import ChatScreen from './screens/ChatScreen';
-// Future native screens will be imported here
+import SettingsScreen from './screens/SettingsScreen';
+import ProfileScreen from './screens/ProfileScreen';
+import EditProfileScreen from './screens/EditProfileScreen';
+import PersonalizationScreen from './screens/PersonalizationScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -13,13 +15,16 @@ export default function App() {
     <NavigationContainer>
       <Stack.Navigator
         screenOptions={{
-          headerShown: false,            // use own headers for consistency
+          headerShown: false,
           animation: 'slide_from_right',
           contentStyle: { backgroundColor: '#000000' },
         }}
       >
         <Stack.Screen name="Chat" component={ChatScreen} />
-        {/* More screens will be added here */}
+        <Stack.Screen name="Settings" component={SettingsScreen} />
+        <Stack.Screen name="Profile" component={ProfileScreen} />
+        <Stack.Screen name="EditProfile" component={EditProfileScreen} />
+        <Stack.Screen name="Personalization" component={PersonalizationScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );
