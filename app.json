@@ -1,3 +1,4 @@
+
 {
   "expo": {
     "name": "EimemesChat AI",
@@ -42,16 +43,24 @@
       ]
     },
     "plugins": [
-  "expo-notifications",
-  "@react-native-google-signin/google-signin/app.plugin.js",
-  [
-    "expo-image-picker",
-    {
-      "photosPermission": "Allow EimemesChat AI to access your photos so you can share them in chat.",
-      "cameraPermission": "Allow EimemesChat AI to use your camera to take photos to share in chat."
-    }
-  ],
-  "expo-document-picker"
+      "expo-notifications",
+      "@react-native-google-signin/google-signin",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow EimemesChat AI to access your photos so you can share them in chat.",
+          "cameraPermission": "Allow EimemesChat AI to use your camera to take photos to share in chat."
+        }
+      ],
+      "expo-document-picker",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "extraMavenRepos": ["https://jitpack.io"]
+          }
+        }
+      ]
     ],
     "extra": {
       "eas": {
