@@ -1,4 +1,4 @@
-// screens/SettingsScreen.tsx
+// screens/SettingsScreen.tsx — v1.2 (Ionicons instead of emojis)
 import React, { useState } from 'react';
 import {
   View,
@@ -9,29 +9,20 @@ import {
   Switch,
   Alert,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { signOut } from 'firebase/auth';
+import { auth } from '../firebase';
 import { Colors } from '../theme';
+import SignOutModal from '../components/SignOutModal';
 
-// ── Reusable round icon ──────────────────────────────────────────
-function RoundIcon({
-  color,
-  children,
-}: {
-  color?: string;
-  children: React.ReactNode;
-}) {
+function RoundIcon({ color, children }: { color?: string; children: React.ReactNode }) {
   return (
-    <View
-      style={[
-        styles.roundIcon,
-        { backgroundColor: color || Colors.accentDim },
-      ]}
-    >
+    <View style={[styles.roundIcon, { backgroundColor: color || Colors.accentDim }]}>
       {children}
     </View>
   );
 }
 
-// ── A single settings row ────────────────────────────────────────
 function SettingsRow({
   icon,
   iconColor,
@@ -63,14 +54,10 @@ function SettingsRow({
     >
       <RoundIcon color={red ? Colors.redBg : iconColor}>{icon}</RoundIcon>
       <View style={{ flex: 1 }}>
-        <Text style={[styles.rowLabel, red && { color: Colors.red }]}>
-          {label}
-        </Text>
+        <Text style={[styles.rowLabel, red && { color: Colors.red }]}>{label}</Text>
         {desc ? <Text style={styles.rowDesc}>{desc}</Text> : null}
       </View>
-      {value && !toggle ? (
-        <Text style={styles.rowValue}>{value}</Text>
-      ) : null}
+      {value && !toggle ? <Text style={styles.rowValue}>{value}</Text> : null}
       {toggle ? (
         <Switch
           value={toggleOn}
@@ -80,20 +67,13 @@ function SettingsRow({
           style={{ marginLeft: 8 }}
         />
       ) : (
-        <Text style={styles.chevron}>›</Text>
+        <Ionicons name="chevron-forward" size={18} color={Colors.text3} />
       )}
     </TouchableOpacity>
   );
 }
 
-// ── Section wrapper ──────────────────────────────────────────────
-function Section({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>{title}</Text>
@@ -102,10 +82,11 @@ function Section({
   );
 }
 
-// ── Screen ───────────────────────────────────────────────────────
 export default function SettingsScreen({ navigation }: any) {
   const [isDark, setIsDark] = useState(true);
   const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>('medium');
+  const [signOutVisible, setSignOutVisible] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
 
   const handleClearChats = () => {
     Alert.alert(
@@ -124,17 +105,17 @@ export default function SettingsScreen({ navigation }: any) {
     );
   };
 
-  const handleSignOut = () => {
-    Alert.alert('Sign out', 'End your session?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Sign out',
-        style: 'destructive',
-        onPress: () => {
-          // TODO: call signOut function
-        },
-      },
-    ]);
+  const handleSignOutConfirm = async () => {
+    setSigningOut(true);
+    try {
+      await signOut(auth);
+      setSignOutVisible(false);
+    } catch (err) {
+      console.log('Sign out error', err);
+      Alert.alert('Error', 'Could not sign out. Try again.');
+    } finally {
+      setSigningOut(false);
+    }
   };
 
   return (
@@ -142,19 +123,17 @@ export default function SettingsScreen({ navigation }: any) {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.backBtn}>← Back</Text>
+          <Ionicons name="chevron-back" size={22} color={Colors.accent} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Settings</Text>
-        <View style={{ width: 60 }} />
+        <View style={{ width: 24 }} />
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
-        {/* Profile row */}
+        {/* Profile */}
         <Section title="Profile">
           <SettingsRow
-            icon={
-              <Text style={{ color: Colors.accent }}>👤</Text>
-            }
+            icon={<Ionicons name="person-outline" size={18} color={Colors.accent} />}
             iconColor={Colors.accentDim}
             label="Profile"
             desc="Edit name & photo"
@@ -165,9 +144,7 @@ export default function SettingsScreen({ navigation }: any) {
         {/* Personalization */}
         <Section title="Personalization">
           <SettingsRow
-            icon={
-              <Text style={{ color: Colors.accent }}>✏️</Text>
-            }
+            icon={<Ionicons name="create-outline" size={18} color={Colors.accent} />}
             iconColor={Colors.accentDim}
             label="Personalization"
             desc="Tone, nickname, custom instructions"
@@ -178,22 +155,18 @@ export default function SettingsScreen({ navigation }: any) {
         {/* Account */}
         <Section title="Account">
           <SettingsRow
-            icon={
-              <Text style={{ color: Colors.accent }}>🚪</Text>
-            }
+            icon={<Ionicons name="log-out-outline" size={18} color={Colors.accent} />}
             iconColor={Colors.accentDim}
             label="Sign out"
             desc="End your session"
-            onPress={handleSignOut}
+            onPress={() => setSignOutVisible(true)}
           />
         </Section>
 
         {/* Data */}
         <Section title="Data">
           <SettingsRow
-            icon={
-              <Text style={{ color: Colors.red }}>🗑️</Text>
-            }
+            icon={<Ionicons name="trash-outline" size={18} color={Colors.red} />}
             iconColor={Colors.redBg}
             label="Clear all chats"
             desc="Permanently erase conversation history"
@@ -205,9 +178,7 @@ export default function SettingsScreen({ navigation }: any) {
         {/* Appearance */}
         <Section title="Appearance">
           <SettingsRow
-            icon={
-              <Text style={{ color: Colors.accent }}>🌙</Text>
-            }
+            icon={<Ionicons name="moon-outline" size={18} color={Colors.accent} />}
             iconColor={Colors.accentDim}
             label="Dark Mode"
             desc="Override system preference"
@@ -217,7 +188,7 @@ export default function SettingsScreen({ navigation }: any) {
           />
           <View style={[styles.row, { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderB }]}>
             <RoundIcon color={Colors.accentDim}>
-              <Text style={{ color: Colors.accent, fontSize: 14 }}>Aa</Text>
+              <Ionicons name="text-outline" size={18} color={Colors.accent} />
             </RoundIcon>
             <View style={{ flex: 1 }}>
               <Text style={styles.rowLabel}>Font Size</Text>
@@ -228,17 +199,9 @@ export default function SettingsScreen({ navigation }: any) {
                 <TouchableOpacity
                   key={size}
                   onPress={() => setFontSize(size)}
-                  style={[
-                    styles.fontOption,
-                    fontSize === size && styles.fontOptionActive,
-                  ]}
+                  style={[styles.fontOption, fontSize === size && styles.fontOptionActive]}
                 >
-                  <Text
-                    style={[
-                      styles.fontOptionText,
-                      fontSize === size && styles.fontOptionTextActive,
-                    ]}
-                  >
+                  <Text style={[styles.fontOptionText, fontSize === size && styles.fontOptionTextActive]}>
                     {size === 'small' ? 'S' : size === 'medium' ? 'M' : 'L'}
                   </Text>
                 </TouchableOpacity>
@@ -249,6 +212,13 @@ export default function SettingsScreen({ navigation }: any) {
 
         <Text style={styles.footer}>EimemesChat AI · 2026</Text>
       </ScrollView>
+
+      <SignOutModal
+        visible={signOutVisible}
+        loading={signingOut}
+        onClose={() => setSignOutVisible(false)}
+        onConfirm={handleSignOutConfirm}
+      />
     </View>
   );
 }
@@ -266,13 +236,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: Colors.borderB,
   },
-  backBtn: { fontSize: 16, color: Colors.accent },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: Colors.text1,
-    fontFamily: 'System',
-  },
+  headerTitle: { fontSize: 20, fontWeight: '700', color: Colors.text1 },
   content: { padding: 20, paddingBottom: 40 },
   section: { marginBottom: 24 },
   sectionTitle: {
@@ -308,7 +272,6 @@ const styles = StyleSheet.create({
   rowLabel: { fontSize: 15, fontWeight: '500', color: Colors.text1 },
   rowDesc: { fontSize: 12.5, color: Colors.text3, marginTop: 2 },
   rowValue: { fontSize: 15, color: Colors.text3, marginRight: 4 },
-  chevron: { fontSize: 18, color: Colors.text3 },
   fontOption: {
     paddingHorizontal: 10,
     paddingVertical: 4,
