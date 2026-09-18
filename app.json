@@ -3,7 +3,7 @@
   "expo": {
     "name": "EimemesChat AI",
     "slug": "eimemeschat-ai",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "owner": "michaelkilong",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
